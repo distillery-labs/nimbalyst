@@ -34,11 +34,9 @@ jobs:
           # Publishing. Earlier majors need an `npm install -g npm@latest`
           # upgrade step that hits a known self-replace bug on the runner.
           node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
           cache-dependency-path: '**/package-lock.json'
-        # NOTE: deliberately omit `registry-url`. setup-node would otherwise
-        # write `_authToken=${NODE_AUTH_TOKEN}` into a generated .npmrc, which
-        # blocks npm from falling back to OIDC Trusted Publishing on publish.
 
       - name: Install dependencies
         run: npm ci
@@ -62,7 +60,10 @@ jobs:
       - name: Publish to npm (Trusted Publishing via OIDC)
         if: ${{ !inputs.dry_run }}
         working-directory: packages/extension-sdk
-        run: npm publish --access public
+        # `--provenance` is what triggers npm's OIDC exchange. Without it the
+        # CLI publishes anonymously and bails on ENEEDAUTH even when
+        # id-token: write is granted.
+        run: npm publish --access public --provenance
 
       - name: Dry run pack
         if: ${{ inputs.dry_run }}
