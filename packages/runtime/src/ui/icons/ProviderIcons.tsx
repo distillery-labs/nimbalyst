@@ -12,7 +12,7 @@ const PROVIDER_ICON_MAP: Record<string, string> = {
   'openai-codex-acp': 'openai-codex',
 };
 
-function resolveProviderIcon(provider: string): string {
+export function resolveProviderIcon(provider: string): string {
   return PROVIDER_ICON_MAP[provider] ?? provider;
 }
 
