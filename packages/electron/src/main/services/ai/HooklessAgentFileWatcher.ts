@@ -1,14 +1,14 @@
 /**
- * Per-session file watcher manager for agent providers without edit-tracking hooks.
+ * Per-session file watcher manager for agent providers (claude-code, codex,
+ * opencode, copilot-cli, ...). These providers execute file edits via their
+ * own internal mechanisms — we don't always get a tool-call event we can
+ * attribute. We run a chokidar-backed `SessionFileWatcher` rooted at the
+ * workspace, paired with a `FileSnapshotCache` that captures pre-edit
+ * baselines, so the diff/pending-review pipeline works.
  *
- * Most agents (codex, opencode, copilot-cli, ...) execute file edits via their
- * own internal mechanisms — we don't get a tool-call event we can attribute.
- * For those providers we run a chokidar-backed `SessionFileWatcher` rooted at
- * the workspace, paired with a `FileSnapshotCache` that captures pre-edit
- * baselines, so the diff/pending-review pipeline still works.
- *
- * Claude Code does not need this — its provider hooks file edits at the SDK
- * level, so AIService never asks this manager to start a watcher for it.
+ * Claude Code hooks Edit/Write at the SDK level so most edits don't need this,
+ * but its Bash invocations still flow through `trackBashEditsFromCommand`,
+ * which is why a watcher is started for it too.
  *
  * Lifecycle:
  *   - `ensureForSession` — start (or reuse) a watcher for a session/workspace
@@ -227,7 +227,10 @@ export class HooklessAgentFileWatcher {
 
       const currentContentResult = await readFileContentOrNull(filePath);
       if (currentContentResult === null) {
-        logger.main.warn('[HooklessAgentFileWatcher] Failed to read current Bash content:', {
+        // Non-ENOENT read failure (EACCES, EISDIR for races where a path
+        // resolves to a directory after our extractor's stat check, etc.).
+        // Best-effort tracking: skip silently — operators can't act on this.
+        logger.main.debug('[HooklessAgentFileWatcher] Failed to read current Bash content:', {
           sessionId: session.id,
           filePath,
         });
@@ -354,54 +357,70 @@ export class HooklessAgentFileWatcher {
     this.watchers.clear();
   }
 
-  /**
-   * Scan a Bash command for plausible file paths within the workspace.
-   * Returns absolute, real (symlink-resolved) paths. Used by
-   * `trackBashEditsFromCommand` to discover which files an agent's bash
-   * command touched.
-   */
   private async extractFilePathsFromCommand(
     command: string,
     workspacePath: string,
     cwd: string,
   ): Promise<string[]> {
-    const results = new Set<string>();
-    const normalizedCommand = command.replace(/\\/g, path.sep);
-
-    const resolveAndCheck = async (candidate: string): Promise<void> => {
-      try {
-        // Resolve symlinks so boundary check cannot be bypassed via symlinks
-        const realPath = await fs.promises.realpath(candidate);
-        if (isFileInWorkspaceOrWorktree(realPath, workspacePath)) {
-          results.add(realPath);
-        }
-      } catch {
-        // File does not exist or is inaccessible - skip
-      }
-    };
-
-    const candidates: string[] = [];
-
-    const absoluteMatches = [
-      ...(normalizedCommand.match(/\/[^\s'"]+/g) || []),
-      ...(normalizedCommand.match(/[A-Za-z]:[\\\/][^\s'"]+/g) || []),
-    ];
-    for (const raw of absoluteMatches) {
-      const cleaned = raw.replace(/[);:,]+$/, '');
-      if (!cleaned) continue;
-      candidates.push(path.normalize(cleaned));
-    }
-
-    const tokens = normalizedCommand.split(/\s+/);
-    for (const token of tokens) {
-      if (!token) continue;
-      const cleaned = token.replace(/^['"]|['"]$/g, '').replace(/[);:,]+$/, '');
-      if (!cleaned || path.isAbsolute(cleaned)) continue;
-      if (!cleaned.includes(path.sep) && !cleaned.includes('/')) continue;
-      candidates.push(path.normalize(path.resolve(cwd, cleaned)));
-    }
-
-    await Promise.all(candidates.map(c => resolveAndCheck(c)));
-    return [...results];
+    return extractFilePathsFromCommand(command, workspacePath, cwd);
   }
+}
+
+/**
+ * Scan a Bash command for plausible file paths within the workspace.
+ * Returns absolute, real (symlink-resolved) paths to *regular files only* —
+ * directories are filtered out so commands like `find /dir` or `ls /dir`
+ * don't pollute the candidate set with unreadable entries. Used by
+ * `trackBashEditsFromCommand` to discover which files an agent's bash
+ * command touched.
+ *
+ * Exported for unit testing.
+ */
+export async function extractFilePathsFromCommand(
+  command: string,
+  workspacePath: string,
+  cwd: string,
+): Promise<string[]> {
+  const results = new Set<string>();
+  const normalizedCommand = command.replace(/\\/g, path.sep);
+
+  const resolveAndCheck = async (candidate: string): Promise<void> => {
+    try {
+      // Resolve symlinks so boundary check cannot be bypassed via symlinks.
+      const realPath = await fs.promises.realpath(candidate);
+      if (!isFileInWorkspaceOrWorktree(realPath, workspacePath)) return;
+      // Skip non-regular files (directories, sockets, fifos). Bash commands
+      // routinely reference directories as positional args; without this
+      // filter every such mention later fails `readFile` with EISDIR.
+      const stats = await fs.promises.stat(realPath);
+      if (!stats.isFile()) return;
+      results.add(realPath);
+    } catch {
+      // File does not exist or is inaccessible - skip
+    }
+  };
+
+  const candidates: string[] = [];
+
+  const absoluteMatches = [
+    ...(normalizedCommand.match(/\/[^\s'"]+/g) || []),
+    ...(normalizedCommand.match(/[A-Za-z]:[\\\/][^\s'"]+/g) || []),
+  ];
+  for (const raw of absoluteMatches) {
+    const cleaned = raw.replace(/[);:,]+$/, '');
+    if (!cleaned) continue;
+    candidates.push(path.normalize(cleaned));
+  }
+
+  const tokens = normalizedCommand.split(/\s+/);
+  for (const token of tokens) {
+    if (!token) continue;
+    const cleaned = token.replace(/^['"]|['"]$/g, '').replace(/[);:,]+$/, '');
+    if (!cleaned || path.isAbsolute(cleaned)) continue;
+    if (!cleaned.includes(path.sep) && !cleaned.includes('/')) continue;
+    candidates.push(path.normalize(path.resolve(cwd, cleaned)));
+  }
+
+  await Promise.all(candidates.map(c => resolveAndCheck(c)));
+  return [...results];
 }
