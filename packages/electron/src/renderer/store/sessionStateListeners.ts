@@ -44,15 +44,43 @@ import {
 import { workstreamActiveChildAtom, workstreamStateAtom } from './atoms/workstreamState';
 import { setWindowModeAtom } from './atoms/windowMode';
 import { triggerWorktreeRefreshAtom } from './atoms/gitOperations';
-import { TranscriptProjector } from '@nimbalyst/runtime/ai/server/transcript/TranscriptProjector';
 import type { TranscriptEvent } from '@nimbalyst/runtime/ai/server/transcript/types';
+import { TranscriptStreamAccumulator } from './transcriptStreamAccumulator';
 
 /**
  * Per-session accumulator of canonical events received via IPC.
- * Used to incrementally build the transcript during live streaming
- * without reloading from the database.
+ *
+ * Coalesces high-frequency `transcript:event` updates into at most one
+ * atom write per animation frame per session. See NIM-411: long Claude
+ * Code streaming turns (thousands of token chunks against a transcript
+ * with hundreds of events) used to do an O(N) re-projection per chunk
+ * here, freezing the renderer and exhausting the JS heap.
  */
-const liveCanonicalEvents = new Map<string, TranscriptEvent[]>();
+const transcriptAccumulator = new TranscriptStreamAccumulator({
+  emit: ({ sessionId, messages }) => {
+    const currentSession = store.get(sessionStoreAtom(sessionId));
+    if (!currentSession) return;
+    store.set(sessionStoreAtom(sessionId), {
+      ...currentSession,
+      messages,
+    });
+  },
+  readDbMessages: (sessionId) => {
+    const currentSession = store.get(sessionStoreAtom(sessionId));
+    return currentSession?.messages ?? [];
+  },
+  // requestAnimationFrame caps flushes at the display refresh rate (~60 Hz)
+  // and gives the JS thread a chance to do other work between frames.
+  // Falls back to setTimeout in non-DOM environments (Vitest, headless).
+  schedule:
+    typeof requestAnimationFrame === 'function'
+      ? (cb) => {
+          requestAnimationFrame(() => cb());
+        }
+      : (cb) => {
+          setTimeout(cb, 16);
+        },
+});
 
 // Track blitz IDs for which an analysis session creation has already been triggered.
 // Prevents duplicate IPC calls when multiple children complete near-simultaneously.
@@ -689,64 +717,11 @@ export function initSessionStateListeners(): () => void {
   // Live canonical transcript event handler
   // ---------------------------------------------------------------------------
   const handleTranscriptEvent = (transcriptEvent: TranscriptEvent) => {
-    const { sessionId } = transcriptEvent;
-    if (!sessionId) return;
-
-    // Accumulate canonical events for this session.
-    // On first event, seed the accumulator from the current session's messages
-    // so we never lose messages that were loaded from the DB before streaming started.
-    // After seeding, the accumulator is the authoritative source and DB reloads
-    // merge INTO it rather than replacing it -- no timing sensitivity.
-    let events = liveCanonicalEvents.get(sessionId);
-    if (!events) {
-      events = [];
-      liveCanonicalEvents.set(sessionId, events);
-
-      // Seed from current session data: the session was loaded from DB before
-      // streaming started, so sessionStoreAtom already has projected messages.
-      // We don't re-seed events from DB here (would need async IPC). Instead,
-      // we rely on the fact that reloadSessionDataAtom will merge cleanly below.
-    }
-
-    // For update events (tool_call_completed, subagent_completed, interactive_prompt_updated),
-    // replace the existing event with the updated version
-    const existingIdx = events.findIndex(e => e.id === transcriptEvent.id);
-    if (existingIdx >= 0) {
-      events[existingIdx] = transcriptEvent;
-    } else {
-      events.push(transcriptEvent);
-    }
-
-    // Re-project live events into messages. If the session already has DB-loaded
-    // messages (from reloadSessionDataAtom), merge: keep DB messages that aren't
-    // covered by live events, then append/replace with live-projected messages.
-    const liveViewModel = TranscriptProjector.project(events);
-    const currentSession = store.get(sessionStoreAtom(sessionId));
-    if (currentSession) {
-      const dbMessages = currentSession.messages ?? [];
-      const liveMessages = liveViewModel.messages;
-
-      // Build merged list: start with DB messages, then append live messages
-      // that aren't already present (by ID). Live versions win for any ID collision.
-      // Also drop optimistic messages (negative IDs) once live canonical events
-      // include a user_message -- the real version is now in the live set, so
-      // keeping the optimistic copy causes a duplicate that persists across
-      // every subsequent handleTranscriptEvent merge.
-      const liveIds = new Set(liveMessages.map(m => m.id));
-      const hasLiveUserMessage = liveMessages.some(m => m.type === 'user_message');
-      const merged = [
-        ...dbMessages.filter(m => !liveIds.has(m.id) && !(m.id < 0 && hasLiveUserMessage)),
-        ...liveMessages,
-      ];
-      // Sort by ID to maintain chronological order (IDs are sequential)
-      merged.sort((a, b) => a.id - b.id);
-
-      // console.log(`[TRANSCRIPT-DEBUG] handleTranscriptEvent: ${dbMessages.length} DB + ${liveMessages.length} live = ${merged.length} merged`);
-      store.set(sessionStoreAtom(sessionId), {
-        ...currentSession,
-        messages: merged,
-      });
-    }
+    if (!transcriptEvent.sessionId) return;
+    // The accumulator decides whether the change is a cheap in-place patch
+    // or requires a full re-projection, then flushes once per animation
+    // frame. See `transcriptStreamAccumulator.ts` for the rationale.
+    transcriptAccumulator.apply(transcriptEvent);
   };
 
   let cleanupAskUserQuestion: (() => void) | undefined;
@@ -819,6 +794,6 @@ export function initSessionStateListeners(): () => void {
     cleanupSyncReadState?.();
     cleanupSyncDraftInput?.();
     cleanupTranscriptEvent?.();
-    liveCanonicalEvents.clear();
+    transcriptAccumulator.clear();
   };
 }

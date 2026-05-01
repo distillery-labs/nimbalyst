@@ -23,9 +23,13 @@ export default defineConfig({
     hookTimeout: 10000
   },
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src')
-    }
+    alias: [
+      // Mirror tsconfig.json paths so Vitest can resolve cross-package imports.
+      // Use array form so we can match @nimbalyst/runtime/<deep-path> with a regex.
+      { find: /^@nimbalyst\/runtime$/, replacement: path.resolve(__dirname, '../runtime/src/index.ts') },
+      { find: /^@nimbalyst\/runtime\/(.+)$/, replacement: path.resolve(__dirname, '../runtime/src') + '/$1' },
+      { find: '@', replacement: path.resolve(__dirname, './src') }
+    ]
   },
   define: {
     'process.env.NODE_ENV': '"test"'
