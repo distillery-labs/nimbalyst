@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 <!-- Removed features go here -->
 
+## [0.58.19] - 2026-05-04
+
+
+### Fixed
+- Harden Electron security: require a per-launch bearer token on the five internal MCP HTTP servers so a page in the user's browser can no longer fire side-effecting tool calls at the localhost ports. Drop `Access-Control-Allow-Origin: *` from MCP preflight responses (the `/clip` web-clipper endpoint keeps its CORS-open shape). Restore `webSecurity: true` on the main BrowserWindow by routing image-rendering call sites through a registered `nim-asset://` custom protocol that validates paths against an allowlist of open workspaces. Fixes #146.
+- Fix invisible git log resize handle in the git extension.
+
 ## [0.58.18] - 2026-05-03
 
 
