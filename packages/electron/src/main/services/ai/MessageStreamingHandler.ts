@@ -164,6 +164,28 @@ async function getCurrentSessionTitle(sessionId: string, fallback = 'AI Session'
   return fallback;
 }
 
+// Cache of sessionId -> workspacePath so per-batch broadcast routing doesn't
+// hit the DB on every flush. A session's workspace is immutable, so the cache
+// never needs invalidation; it grows with the number of distinct sessions
+// seen. First lookup for an unknown session pays one AISessionsRepository.get;
+// subsequent lookups are O(1).
+const sessionWorkspaceCache = new Map<string, string>();
+
+async function getWorkspacePathForSession(sessionId: string): Promise<string | null> {
+  const cached = sessionWorkspaceCache.get(sessionId);
+  if (cached) return cached;
+  try {
+    const session = await AISessionsRepository.get(sessionId);
+    if (session?.workspacePath) {
+      sessionWorkspaceCache.set(sessionId, session.workspacePath);
+      return session.workspacePath;
+    }
+  } catch {
+    // Ignore — caller will skip the broadcast.
+  }
+  return null;
+}
+
 export class MessageStreamingHandler {
   private readonly svc: AIServiceInternal;
   private readonly unsubscribeBatchListener: () => void;
@@ -180,11 +202,25 @@ export class MessageStreamingHandler {
     // refresh once instead of N times. The queue already excludes hidden rows
     // from the count, so we don't filter again here.
     this.unsubscribeBatchListener = onAgentMessageBatch((batch) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.isDestroyed()) {
-          window.webContents.send('ai:messages-logged-batch', batch);
+      // Route to only the window owning this session's workspace. The previous
+      // BrowserWindow.getAllWindows() fan-out caused every window to react to
+      // every other window's session activity, which surfaced as
+      // [SessionManager] Rejecting session ... rejection logs because the
+      // receiving window's renderer would call aiLoadSession with its own
+      // workspace path. The session's workspace is immutable, so we cache the
+      // lookup. See docs/IPC_GUIDE.md "Workspace-Scoped IPC".
+      void getWorkspacePathForSession(batch.sessionId).then((workspacePath) => {
+        if (!workspacePath) {
+          return;
         }
-      }
+        const targetWindow = findWindowByWorkspace(workspacePath);
+        if (targetWindow && !targetWindow.isDestroyed()) {
+          targetWindow.webContents.send('ai:messages-logged-batch', {
+            ...batch,
+            workspacePath,
+          });
+        }
+      });
     });
   }
 
