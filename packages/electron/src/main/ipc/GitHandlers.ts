@@ -8,9 +8,11 @@ import { ipcMain } from 'electron';
 import simpleGit, { SimpleGit } from 'simple-git';
 import log from 'electron-log/main';
 import { existsSync } from 'fs';
-import { join, relative, isAbsolute } from 'path';
+import { dirname, join, relative, isAbsolute, resolve } from 'path';
 import { gitOperationLock } from '../services/GitOperationLock';
 import { safeHandle } from '../utils/ipcRegistry';
+import { findGitRootForFile } from '../services/GitStatusService';
+import { isFileInWorkspaceOrWorktree } from '../utils/workspaceDetection';
 
 function isGitRepository(workspacePath: string): boolean {
   try {
@@ -31,6 +33,48 @@ async function hasCommits(git: SimpleGit): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function findNearestGitRoot(filePath: string): string | null {
+  let dir = dirname(resolve(filePath));
+
+  while (true) {
+    try {
+      if (existsSync(join(dir, '.git'))) {
+        return dir;
+      }
+    } catch {
+      // Ignore filesystem errors and continue walking up.
+    }
+
+    const parent = dirname(dir);
+    if (parent === dir) {
+      return null;
+    }
+    dir = parent;
+  }
+}
+
+export function resolveGitDiffTarget(
+  workspacePath: string,
+  filePath: string
+): { gitWorkspacePath: string; gitFilePath: string } {
+  const resolvedWorkspacePath = resolve(workspacePath);
+  const absoluteFilePath = isAbsolute(filePath)
+    ? resolve(filePath)
+    : resolve(resolvedWorkspacePath, filePath);
+
+  const relatedAbsolutePath = isAbsolute(filePath) && isFileInWorkspaceOrWorktree(absoluteFilePath, resolvedWorkspacePath)
+    ? absoluteFilePath
+    : null;
+  const gitWorkspacePath = relatedAbsolutePath
+    ? findNearestGitRoot(relatedAbsolutePath) ?? resolvedWorkspacePath
+    : findGitRootForFile(filePath, resolvedWorkspacePath) ?? resolvedWorkspacePath;
+
+  return {
+    gitWorkspacePath,
+    gitFilePath: relative(gitWorkspacePath, absoluteFilePath).replace(/\\/g, '/'),
+  };
 }
 
 interface GitStatusResult {
@@ -768,21 +812,22 @@ export function registerGitHandlers(): void {
         return { unifiedDiff: '', isBinary: false };
       }
 
-      const git: SimpleGit = simpleGit(workspacePath);
       const filePath = args.path;
       const group = args.group;
+      const { gitWorkspacePath, gitFilePath } = resolveGitDiffTarget(workspacePath, filePath);
+      const git: SimpleGit = simpleGit(gitWorkspacePath);
       const repoHasCommits = await hasCommits(git);
 
       try {
         if (group === 'staged') {
           const diff = repoHasCommits
-            ? await git.diff(['--cached', '--', filePath])
-            : await git.diff(['--cached', '--', filePath]);
+            ? await git.diff(['--cached', '--', gitFilePath])
+            : await git.diff(['--cached', '--', gitFilePath]);
           return { unifiedDiff: diff, isBinary: /\bBinary files\b/.test(diff) };
         }
 
         if (group === 'unstaged' || group === 'conflicted') {
-          const diff = await git.diff(['--', filePath]);
+          const diff = await git.diff(['--', gitFilePath]);
           return { unifiedDiff: diff, isBinary: /\bBinary files\b/.test(diff) };
         }
 
@@ -791,19 +836,19 @@ export function registerGitHandlers(): void {
           // HEAD, so synthesize against /dev/null. For deleted files HEAD has the
           // content and the working tree doesn't — `git diff HEAD` handles this.
           if (repoHasCommits) {
-            const diff = await git.diff(['HEAD', '--', filePath]);
+            const diff = await git.diff(['HEAD', '--', gitFilePath]);
             if (diff && diff.trim().length > 0) {
               return { unifiedDiff: diff, isBinary: /\bBinary files\b/.test(diff) };
             }
           }
           // Fall through to untracked-file synthesis if HEAD diff was empty
           // (e.g. file is brand-new and not staged).
-          const absolute = isAbsolute(filePath) ? filePath : join(workspacePath, filePath);
+          const absolute = isAbsolute(filePath) ? filePath : join(gitWorkspacePath, gitFilePath);
           if (!existsSync(absolute)) {
             return { unifiedDiff: '', isBinary: false };
           }
           try {
-            const diff = await git.raw(['diff', '--no-index', '--', '/dev/null', filePath]);
+            const diff = await git.raw(['diff', '--no-index', '--', '/dev/null', gitFilePath]);
             return { unifiedDiff: diff, isBinary: /\bBinary files\b/.test(diff) };
           } catch (err) {
             const diff = (err as { stdout?: string })?.stdout ?? '';
@@ -816,7 +861,7 @@ export function registerGitHandlers(): void {
 
         if (group === 'untracked') {
           // Synthesize a unified diff from the working-tree file contents.
-          const absolute = isAbsolute(filePath) ? filePath : join(workspacePath, filePath);
+          const absolute = isAbsolute(filePath) ? filePath : join(gitWorkspacePath, gitFilePath);
           if (!existsSync(absolute)) {
             return { unifiedDiff: '', isBinary: false };
           }
@@ -824,7 +869,7 @@ export function registerGitHandlers(): void {
           // for an untracked file. This handles binary detection naturally and respects
           // the user's diff config (e.g. mnemonicPrefix).
           try {
-            const diff = await git.raw(['diff', '--no-index', '--', '/dev/null', filePath]);
+            const diff = await git.raw(['diff', '--no-index', '--', '/dev/null', gitFilePath]);
             return { unifiedDiff: diff, isBinary: /\bBinary files\b/.test(diff) };
           } catch (err) {
             // git diff --no-index exits 1 when files differ; simple-git treats this as success
