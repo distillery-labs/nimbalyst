@@ -138,7 +138,7 @@ import { UpdateToast } from './components/UpdateToast';
 import { ProjectTrustToast } from './components/ProjectTrustToast';
 import { getTextSelection } from './components/UnifiedAI/TextSelectionIndicator';
 // NOTE: FeedbackIntakeDialog now managed by DialogProvider
-import { buildFeedbackInitialDraft } from './components/Feedback';
+import { buildFeedbackInitialDraft, type FeedbackIntakeLaunchOptions } from './components/Feedback';
 import OnboardingService from './services/OnboardingService';
 import { WalkthroughProvider } from './walkthroughs';
 import { TipProvider } from './tips';
@@ -954,7 +954,7 @@ export default function App() {
   const handleOpenFeedback = useCallback(() => {
     if (!dialogRef.current) return;
     dialogRef.current.open(DIALOG_IDS.FEEDBACK_INTAKE, {
-      onLaunch: ({ kind, mayGatherLogs, shouldCreateMockup }) => {
+      onLaunch: ({ kind, mayGatherLogs, shouldCreateMockup }: FeedbackIntakeLaunchOptions) => {
         const draft = `${buildFeedbackInitialDraft(kind, {
           mayGatherLogs,
           shouldCreateMockup,
