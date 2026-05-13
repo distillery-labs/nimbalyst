@@ -1005,10 +1005,14 @@ export function WorkspaceSidebar({
     }
 
     // Get the drag data to check if it's a valid file/folder
-    const dragPath = e.dataTransfer.types.includes('text/plain');
-    if (dragPath) {
+    const isInternalDrag = e.dataTransfer.types.includes('text/plain');
+    const isExternalFileDrag = e.dataTransfer.types.includes('Files');
+    if (isInternalDrag) {
       setIsDragOverRoot(true);
       e.dataTransfer.dropEffect = e.altKey || e.metaKey ? 'copy' : 'move';
+    } else if (isExternalFileDrag) {
+      setIsDragOverRoot(true);
+      e.dataTransfer.dropEffect = 'copy';
     }
   };
 
@@ -1025,6 +1029,34 @@ export function WorkspaceSidebar({
     e.preventDefault();
     e.stopPropagation();
     setIsDragOverRoot(false);
+
+    // External files from Finder/Dock: resolve their paths via the preload
+    // bridge (Electron 32 removed File.path) and copy into the workspace root.
+    const externalFiles = Array.from(e.dataTransfer.files);
+    if (externalFiles.length > 0) {
+      let successCount = 0;
+      for (const file of externalFiles) {
+        const sourcePath = window.electronAPI.getPathForFile(file);
+        if (!sourcePath) {
+          console.error('Failed to resolve path for dropped file:', file.name);
+          continue;
+        }
+        try {
+          const result = await window.electronAPI.copyFile(sourcePath, workspacePath);
+          if (result.success) {
+            successCount++;
+          } else {
+            console.error('Failed to copy external file to root:', sourcePath, result.error);
+          }
+        } catch (error) {
+          console.error('Error copying external file to root:', sourcePath, error);
+        }
+      }
+      if (successCount > 0) {
+        handleRefreshFileTree();
+      }
+      return;
+    }
 
     const sourcePath = e.dataTransfer.getData('text/plain');
     if (!sourcePath) return;
