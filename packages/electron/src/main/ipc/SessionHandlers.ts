@@ -686,9 +686,18 @@ export async function registerSessionHandlers() {
     });
 
     // List child sessions for a parent session
-    safeHandle('sessions:list-children', async (event, parentSessionId: string, workspacePath: string) => {
+    safeHandle('sessions:list-children', async (
+        event,
+        parentSessionId: string,
+        workspacePath: string,
+        options?: { includeArchived?: boolean }
+    ) => {
         try {
             const { database } = await import('../database/PGLiteDatabaseWorker');
+            const includeArchived = options?.includeArchived === true;
+            const archivedFilter = includeArchived
+                ? ''
+                : 'AND (s.is_archived = FALSE OR s.is_archived IS NULL)';
 
             const { rows } = await database.query<any>(
                 `SELECT s.id, s.provider, s.model, s.session_type, s.mode, s.agent_role, s.created_by_session_id, s.title, s.workspace_id,
@@ -698,6 +707,7 @@ export async function registerSessionHandlers() {
                  FROM ai_sessions s
                  LEFT JOIN ai_agent_messages m ON s.id = m.session_id AND m.direction = 'input' AND (m.hidden = FALSE OR m.hidden IS NULL)
                  WHERE s.parent_session_id = $1 AND s.workspace_id = $2
+                   ${archivedFilter}
                  GROUP BY s.id, s.provider, s.model, s.session_type, s.mode, s.agent_role, s.created_by_session_id, s.title, s.workspace_id,
                           s.worktree_id, s.parent_session_id, s.created_at, s.updated_at, s.is_archived, s.is_pinned,
                           s.metadata
