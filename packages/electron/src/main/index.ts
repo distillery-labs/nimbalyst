@@ -65,6 +65,7 @@ import {
     updateWorkspaceState,
     runMigrations,
     getAppSetting,
+    getClaudeCodeSettings,
     store
 } from './utils/store';
 import { getAIProviderOverridesWithWorktreeFallback } from './utils/aiSettingsMerge';
@@ -1316,7 +1317,6 @@ app.whenReady().then(async () => {
     // Inject Claude Code settings loader
     // This allows user/project commands to be enabled/disabled via settings
     ClaudeCodeProvider.setClaudeCodeSettingsLoader(async () => {
-        const { getClaudeCodeSettings } = await import('./utils/store');
         return getClaudeCodeSettings();
     });
 
