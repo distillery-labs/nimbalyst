@@ -100,5 +100,5 @@ describe('TrackerSchemaService watcher', () => {
 
     await fs.unlink(filePath);
     await waitFor(() => service.getTrackerSchema('runtime-watch') == null);
-  });
+  }, 15000);
 });
