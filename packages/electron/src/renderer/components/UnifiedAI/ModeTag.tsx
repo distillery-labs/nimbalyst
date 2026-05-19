@@ -35,13 +35,19 @@ const STYLES: Record<AIMode, ModeStyle> = {
  * Ordered list of supported modes for a given provider. The cycle order is
  * the array order (last entry wraps back to the first).
  *
- * - Every provider: Plan, Agent.
- * - `claude-code` only: append Auto. Auto maps to the Claude Agent SDK's
- *   native `permissionMode: 'auto'` classifier (issue #371). Other providers
- *   (Codex, etc.) do not honour it, so it is not surfaced for them. Plan
- *   itself also has known compatibility limits with the Codex harness — we
- *   ship it for parity but treat Auto more strictly to avoid repeating that
- *   class of "feature exists but does nothing" issue.
+ * Note on rendering: today AIInput only renders ModeTag at all when
+ * `provider === 'claude-code'`, so non-claude callers never reach this
+ * helper from the UI. The provider parameter is kept (and the
+ * non-claude-code branch returns just Plan/Agent) as defense in depth:
+ * future callers that drop the outer gate inherit a safe, Auto-free cycle
+ * automatically, and stale `auto` state from a swapped session falls back
+ * to a supported mode instead of breaking the toggle.
+ *
+ * - `claude-code`: Plan, Agent, Auto. Auto maps to the Claude Agent SDK's
+ *   native `permissionMode: 'auto'` classifier (issue #371).
+ * - Other providers (defense-in-depth fallback): Plan, Agent only. Auto is
+ *   omitted because the classifier is Claude Code SDK-specific; Codex and
+ *   other harnesses do not honour it.
  */
 export function buildModeList(provider: string | null | undefined): AIMode[] {
   const modes: AIMode[] = ['planning', 'agent'];
@@ -70,12 +76,17 @@ interface ModeTagProps {
 /**
  * ModeTag - Compact toggle between session modes.
  *
+ * Rendered by AIInput only when `provider === 'claude-code'` (today). The
+ * provider prop drives the supported-mode list and ARIA labels so this
+ * component stays correct if that outer gate ever changes.
+ *
  * Plan mode: Creates plan documents, restricted to markdown files
  * Agent mode: Full tool access, write operations enabled
  * Auto mode (claude-code only): SDK classifier approves safe operations
  *   without prompting and escalates destructive or uncertain ones to the
  *   regular permission prompt. Silent auto-deny only happens for SDK-level
  *   deny rules, not as the classifier's default response to risky tools.
+ *   See issue #371.
  */
 export function ModeTag({ mode, onModeChange, provider }: ModeTagProps) {
   const supportedModes = buildModeList(provider);

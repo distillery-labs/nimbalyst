@@ -410,7 +410,10 @@ const REMINDER_KIND_LABELS: Record<string, string> = {
   session_naming: 'Session metadata reminder',
 };
 
-const REASON_TYPE_LABELS: Record<string, string> = {
+// Keyed by the known PermissionDeniedReasonType values from the SDK. Typed
+// here as a partial record so an unknown value (forward-compatible SDK
+// addition) falls back to the raw string or "SDK" in the renderer.
+const REASON_TYPE_LABELS: Partial<Record<string, string>> = {
   classifier: 'Auto-mode classifier',
   mode: 'Permission mode',
   rule: 'Permission rule',

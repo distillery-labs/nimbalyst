@@ -53,6 +53,21 @@ export interface AssistantMessagePayload {
   model?: string;
 }
 
+/**
+ * Discriminator returned by the SDK on a `permission_denied` event identifying
+ * which subsystem produced the denial. Mirrors values emitted by
+ * `@anthropic-ai/claude-agent-sdk` (see `SDKPermissionDeniedMessage`).
+ *
+ * Future SDK versions may introduce new values, so consumers should still
+ * handle an unknown string gracefully -- the union narrows the *known*
+ * vocabulary for typed label maps without locking out forward compatibility.
+ */
+export type PermissionDeniedReasonType =
+  | 'classifier'
+  | 'mode'
+  | 'rule'
+  | 'asyncAgent';
+
 export interface SystemMessagePayload {
   systemType: 'status' | 'slash_command' | 'error' | 'init' | 'permission_denied';
   statusCode?: string;
@@ -71,11 +86,15 @@ export interface SystemMessagePayload {
    * destructive tools is escalation to the normal permission prompt, not this
    * deny short-circuit. See @anthropic-ai/claude-agent-sdk
    * SDKPermissionDeniedMessage.
+   *
+   * `deniedReasonType` is typed as the known union but persisted as a plain
+   * string in the DB payload, so forward-compatible SDK additions arrive as
+   * an unknown value rather than a parse failure -- renderers should treat
+   * unknown values as a generic "SDK" source.
    */
   deniedToolName?: string;
   deniedReason?: string;
-  /** Discriminator: 'classifier' | 'mode' | 'rule' | 'asyncAgent' */
-  deniedReasonType?: string;
+  deniedReasonType?: PermissionDeniedReasonType | (string & {});
   deniedInput?: Record<string, unknown>;
 }
 

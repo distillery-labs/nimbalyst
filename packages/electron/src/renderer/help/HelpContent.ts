@@ -186,7 +186,7 @@ export const HelpContent: Record<string, HelpEntry> = {
   },
   'plan-mode-toggle': {
     title: 'Session Mode',
-    body: 'Cycle through Plan, Agent, and Auto modes (Shift+Tab; Auto is Claude Code only). Plan: read-only planning. Agent: full tool access with explicit approval on every tool. Auto: SDK classifier approves safe operations silently and falls back to the normal permission prompt for destructive or uncertain ones.',
+    body: 'Cycle through Plan, Agent, and Auto modes (Shift+Tab; Auto is Claude Code only). Plan: read-only planning. Agent: full tool access; first use of each tool prompts for approval (you can grant once, for the session, or always; workspace permission modes like Allow All / Bypass All can skip prompts further). Auto: SDK classifier approves safe operations silently and falls back to the normal permission prompt for destructive or uncertain ones.',
   },
   'auto-bypass-warning': {
     title: 'Auto + Bypass conflict',

@@ -11,7 +11,7 @@
  */
 
 import type { RawMessage } from '../TranscriptTransformer';
-import type { TranscriptEvent, InteractivePromptPayload, TurnEndedPayload, UserMessagePayload } from '../types';
+import type { TranscriptEvent, InteractivePromptPayload, TurnEndedPayload, UserMessagePayload, PermissionDeniedReasonType } from '../types';
 
 // ---------------------------------------------------------------------------
 // Parse context (provided by the transformer to parsers)
@@ -92,7 +92,7 @@ export interface SystemMessageDescriptor {
    */
   deniedToolName?: string;
   deniedReason?: string;
-  deniedReasonType?: string;
+  deniedReasonType?: PermissionDeniedReasonType | (string & {});
   deniedInput?: Record<string, unknown>;
 }
 

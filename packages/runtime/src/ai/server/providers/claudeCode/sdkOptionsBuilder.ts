@@ -121,7 +121,10 @@ export function createPersistentPromptStream(
  * Resolve the SDK `permissionMode` from the session mode.
  *
  * - `planning` -> `plan` (SDK enforces read-only planning, scoped to plan file)
- * - `auto` -> `auto` (SDK classifier approves safe ops, denies destructive)
+ * - `auto` -> `auto` (SDK classifier approves safe ops silently and escalates
+ *   destructive or uncertain ones through `canUseTool` to the regular
+ *   permission prompt; silent auto-deny only fires for SDK-level deny rules
+ *   or `dontAsk` mode, not as the classifier's default response to risky tools)
  * - everything else (incl. `agent` and `undefined`) -> `default`
  *
  * See issue #371 and @anthropic-ai/claude-agent-sdk PermissionMode.
