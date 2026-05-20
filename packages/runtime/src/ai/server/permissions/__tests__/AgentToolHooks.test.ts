@@ -76,6 +76,59 @@ describe('AgentToolHooks', () => {
     });
   });
 
+  describe('Bash pre-tool hook: Auto mode delegates to classifier', () => {
+    it('skips the compound-bash splitter when session mode is auto', async () => {
+      const getPendingToolPermissions = vi.fn();
+      const options = createMockOptions({
+        getCurrentMode: () => 'auto',
+        getPendingToolPermissions,
+        getSessionApprovedPatterns: () => new Set<string>(),
+      });
+      const hooks = new AgentToolHooks(options);
+      const preToolHook = hooks.createPreToolUseHook();
+
+      const result = await preToolHook(
+        { tool_name: 'Bash', tool_input: { command: 'cd packages/runtime && npx tsc --noEmit | tail -10' } },
+        'tool-use-auto-compound-1',
+        { signal: new AbortController().signal }
+      );
+
+      // No-op return lets the SDK classifier own the decision; compound-bash
+      // would otherwise have surfaced a Nimbalyst permission prompt for `cd`.
+      expect(result).toEqual({});
+      expect(options.emit).not.toHaveBeenCalled();
+      expect(options.logAgentMessage).not.toHaveBeenCalled();
+      expect(getPendingToolPermissions).not.toHaveBeenCalled();
+    });
+
+    it('still runs compound-bash checks in agent mode', async () => {
+      const pending = new Map();
+      const options = createMockOptions({
+        getCurrentMode: () => 'agent',
+        getPendingToolPermissions: () => pending as any,
+        getSessionApprovedPatterns: () => new Set<string>(),
+      });
+      const hooks = new AgentToolHooks(options);
+      const preToolHook = hooks.createPreToolUseHook();
+
+      // Kick off the hook -- handleCompoundBashCommand emits a pending
+      // permission for the `cd` sub-command and then blocks on a response.
+      // We only care that the emit happened (proves the splitter ran in agent
+      // mode), so detach the promise instead of awaiting it.
+      const resultPromise = preToolHook(
+        { tool_name: 'Bash', tool_input: { command: 'cd packages/runtime && echo ok' } },
+        'tool-use-agent-compound-1',
+        { signal: new AbortController().signal }
+      );
+      void resultPromise.catch(() => {});
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(options.emit).toHaveBeenCalledWith('toolPermission:pending', expect.any(Object));
+    });
+  });
+
   describe('Bash post-tool hook: editedFilesThisTurn tracking', () => {
     it('tracks Bash-affected files in editedFilesThisTurn via post-tool hook', async () => {
       const options = createMockOptions();

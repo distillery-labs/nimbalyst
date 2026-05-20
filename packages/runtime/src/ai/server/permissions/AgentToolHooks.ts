@@ -273,6 +273,16 @@ export class AgentToolHooks {
           }
         }
 
+        // In Auto session mode, the SDK classifier is the sole decision-maker
+        // for Bash. Running our compound-bash splitter here would preempt the
+        // classifier and surface a Nimbalyst permission prompt for benign
+        // sub-commands (cd, echo, npx ...) that the classifier would have
+        // approved silently. Defer to the classifier; if it denies, the
+        // PermissionDenied hook will re-prompt with the classifier's reason.
+        if (this.getCurrentMode?.() === 'auto') {
+          return {};
+        }
+
         const compoundResult = await this.handleCompoundBashCommand(toolInput, options);
         if (compoundResult) {
           return compoundResult;
