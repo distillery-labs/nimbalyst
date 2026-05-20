@@ -22,6 +22,7 @@ interface ResolveImmediateToolDecisionDeps {
     options: { signal: AbortSignal; toolUseID?: string },
   ) => Promise<ToolDecision>;
   setCurrentMode: (mode: 'planning' | 'agent' | 'auto') => void;
+  getCurrentMode?: () => 'planning' | 'agent' | 'auto' | undefined;
   logSecurity: (message: string, data?: Record<string, unknown>) => void;
 }
 
@@ -42,6 +43,18 @@ export async function resolveImmediateToolDecision(
   const { toolName, input, options, sessionId, pathForTrust } = params;
 
   if (deps.internalMcpTools.includes(toolName)) {
+    return { behavior: 'allow', updatedInput: input };
+  }
+
+  // In auto mode, MCP server tools and skills are auto-approved. The SDK
+  // classifier is the sole decision-maker — if it escalated the call to
+  // canUseTool rather than approving silently, it means it wanted user
+  // confirmation. But MCP servers are user-configured (trusted by definition)
+  // and skills are SDK-native; the CLI auto mode approves these without
+  // prompting. Surfacing a Nimbalyst permission widget for `mcp__*` or `Skill`
+  // calls would break the contract and frustrate users who chose auto mode.
+  if (deps.getCurrentMode?.() === 'auto' && (toolName.startsWith('mcp__') || toolName === 'Skill')) {
+    deps.logSecurity('[canUseTool] Auto mode: auto-approving MCP/skill tool:', { toolName });
     return { behavior: 'allow', updatedInput: input };
   }
 

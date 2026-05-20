@@ -2740,6 +2740,7 @@ export class ClaudeCodeProvider extends BaseAgentProvider {
         handleExitPlanMode: (resolvedSessionId, resolvedInput, resolvedOptions) =>
           this.handleExitPlanMode(resolvedSessionId, resolvedInput, resolvedOptions),
         setCurrentMode: (mode) => { this.currentMode = mode; },
+        getCurrentMode: () => this.currentMode,
         logSecurity: (message, data) => this.logSecurity(message, data),
       },
       {
