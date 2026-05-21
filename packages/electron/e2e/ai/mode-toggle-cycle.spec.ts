@@ -1,16 +1,15 @@
 /**
- * Mode toggle 3-way cycle E2E (issue #371).
+ * Mode toggle binary cycle E2E (issue #371).
  *
  * Verifies:
  * - ModeTag is rendered when provider === 'claude-code' and a session exists
- * - Click cycles Plan -> Agent -> Auto -> Plan
+ * - Click cycles Plan -> Agent -> Plan (binary toggle)
  * - Shift+Tab cycles the same order
  * - Selected mode persists across a page reload
  *
- * Classifier denial rendering and provider gating against OpenAI Codex are
- * covered by unit tests (ModeTag.test.tsx, ClaudeCodeRawParser.test.ts) and
- * manual verification -- mocking the SDK classifier in E2E adds little signal
- * beyond what the unit tests cover.
+ * Auto mode is activated transparently via the "Allow All" trust level and
+ * does not appear in the toggle cycle. Backend classifier logic is covered
+ * by unit tests (AgentToolHooks.test.ts, immediateToolDecision.test.ts).
  */
 
 import { test, expect } from '@playwright/test';
@@ -52,20 +51,18 @@ test.afterAll(async () => {
   }
 });
 
-test('ModeTag cycles Plan -> Agent -> Auto -> Plan on click', async () => {
+test('ModeTag cycles Plan -> Agent -> Plan on click', async () => {
   const modeTag = page.getByTestId('plan-mode-toggle');
   await expect(modeTag).toBeVisible();
 
-  // Starting state depends on default; record it and cycle 3 times to return.
   const initialMode = await modeTag.getAttribute('data-mode');
   const cycle: Record<string, string> = {
     planning: 'agent',
-    agent: 'auto',
-    auto: 'planning',
+    agent: 'planning',
   };
 
   let current = initialMode!;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     await modeTag.click();
     const next = cycle[current];
     await expect(modeTag).toHaveAttribute('data-mode', next);
@@ -79,26 +76,23 @@ test('Shift+Tab cycles modes same as click', async () => {
   const startMode = await modeTag.getAttribute('data-mode');
   const cycle: Record<string, string> = {
     planning: 'agent',
-    agent: 'auto',
-    auto: 'planning',
+    agent: 'planning',
   };
 
-  // Focus the AI input so the Shift+Tab keyboard handler fires.
   const aiInput = page.locator('textarea').first();
   await aiInput.focus();
   await page.keyboard.press('Shift+Tab');
   await expect(modeTag).toHaveAttribute('data-mode', cycle[startMode!]);
 });
 
-test('Auto mode persists across reload', async () => {
+test('Mode persists across reload', async () => {
   const modeTag = page.getByTestId('plan-mode-toggle');
-  // Click until we reach auto.
-  for (let attempts = 0; attempts < 3; attempts++) {
-    const mode = await modeTag.getAttribute('data-mode');
-    if (mode === 'auto') break;
+  // Ensure we're on a known mode (planning).
+  const current = await modeTag.getAttribute('data-mode');
+  if (current !== 'planning') {
     await modeTag.click();
   }
-  await expect(modeTag).toHaveAttribute('data-mode', 'auto');
+  await expect(modeTag).toHaveAttribute('data-mode', 'planning');
 
   await page.reload();
   await waitForAppReady(page);
@@ -106,5 +100,5 @@ test('Auto mode persists across reload', async () => {
 
   const reloadedTag = page.getByTestId('plan-mode-toggle');
   await expect(reloadedTag).toBeVisible();
-  await expect(reloadedTag).toHaveAttribute('data-mode', 'auto');
+  await expect(reloadedTag).toHaveAttribute('data-mode', 'planning');
 });
