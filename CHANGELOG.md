@@ -11,9 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 <!-- New features go here -->
 - Seeded `nimbalyst-local/ai-actions.md` now includes example actions for launching sibling planning and worktree implementation sessions.
+- Tracker screen now has a true table view with aligned headers, sortable columns, resizable widths, and shared row interactions.
 
 ### Changed
 <!-- Changes to existing functionality go here -->
+- Tracker row interactions now live in a shared hook, and persisted tracker view-mode state migrates legacy `'table'` entries to the renamed `'list'` mode.
 
 ### Fixed
 - Shared docs now defer markdown bootstrap until server sync to avoid duplicated content, and share-to-team preserves full custom-editor suffixes like `mockup.html` when routing collaborative docs.
