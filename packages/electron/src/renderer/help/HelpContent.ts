@@ -185,8 +185,8 @@ export const HelpContent: Record<string, HelpEntry> = {
     body: 'Type your message or paste images and files. The AI has full context of your project.',
   },
   'plan-mode-toggle': {
-    title: 'Session Mode',
-    body: 'Toggle between Plan and Agent modes (Shift+Tab). Plan: read-only planning. Agent: full tool access; first use of each tool prompts for approval (you can grant once, for the session, or always). When workspace trust is set to "Allow All", Claude Code sessions automatically use the SDK classifier to approve safe operations silently and prompt only for destructive or uncertain ones.',
+    title: 'Plan vs Agent Mode',
+    body: 'Toggle between Plan and Agent modes. Plan mode creates structured plans before the AI writes code. Agent mode executes changes directly.',
   },
   'attach-files-input': {
     title: 'Attach Files & Images',
