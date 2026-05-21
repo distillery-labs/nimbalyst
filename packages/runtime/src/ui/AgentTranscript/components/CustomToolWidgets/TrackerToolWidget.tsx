@@ -94,10 +94,18 @@ function getResultText(result: unknown): string | null {
   }
   if (r.result != null) return getResultText(r.result);
   if (r.output != null && typeof r.output === 'string') return r.output;
+  if (r.summary != null && typeof r.summary === 'string') return r.summary;
   return null;
 }
 
 function extractStructured(tool: { result?: unknown }): { structured: StructuredResult; summary: string } | null {
+  if (tool.result && typeof tool.result === 'object' && !Array.isArray(tool.result)) {
+    const r = tool.result as any;
+    if (r.structured && r.summary) {
+      return { structured: r.structured as StructuredResult, summary: r.summary as string };
+    }
+  }
+
   const text = getResultText(tool.result);
   if (!text) return null;
   try {
@@ -402,6 +410,22 @@ function humanizeFieldName(field: string): string {
     .replace(/^./, (c) => c.toUpperCase());
 }
 
+function normalizeTagList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .filter((tag): tag is string => typeof tag === 'string')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 const GenericChangeRow: React.FC<{ field: string; change: { from: any; to: any } }> = ({ field, change }) => (
   <Row>
     <Label>{humanizeFieldName(field)}</Label>
@@ -440,8 +464,8 @@ const UpdatedView: React.FC<{ data: StructuredUpdated }> = ({ data }) => {
   // Compute tag diff
   let tagDiff: { kept: string[]; added: string[]; removed: string[] } | null = null;
   if (changes.tags) {
-    const fromTags: string[] = changes.tags.from || [];
-    const toTags: string[] = changes.tags.to || [];
+    const fromTags = normalizeTagList(changes.tags.from);
+    const toTags = normalizeTagList(changes.tags.to);
     const fromSet = new Set(fromTags);
     const toSet = new Set(toTags);
     tagDiff = {

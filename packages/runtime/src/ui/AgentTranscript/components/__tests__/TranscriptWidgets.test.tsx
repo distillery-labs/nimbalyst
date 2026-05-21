@@ -13,6 +13,7 @@
  * - FileChangeWidget (collapsed/expanded, file list)
  * - InteractivePromptWidget (permission and question prompt types)
  * - UpdateSessionMetaWidget (name/phase/tags transitions, fallback states)
+ * - TrackerToolWidget (structured tracker results, legacy tag normalization)
  */
 
 import React from 'react';
@@ -1676,6 +1677,50 @@ describe('UpdateSessionMetaWidget', () => {
     expect(screen.getByText('implementing')).toBeDefined();
     // Should show the "set" badge since name changed from null
     expect(container.textContent).toContain('set');
+  });
+});
+
+describe('TrackerToolWidget', () => {
+  let TrackerToolWidget: React.FC<CustomToolWidgetProps>;
+
+  beforeEach(async () => {
+    const mod = await import('../CustomToolWidgets/TrackerToolWidget');
+    TrackerToolWidget = mod.TrackerToolWidget;
+  });
+
+  it('normalizes legacy string tag values before rendering tracker_update diffs', () => {
+    const result = {
+      structured: {
+        action: 'updated',
+        id: 'bug_123',
+        type: 'bug',
+        typeTags: ['bug'],
+        title: 'Fix transcript widget crash',
+        changes: {
+          tags: {
+            from: 'alpha, beta',
+            to: ['beta', 'gamma'],
+          },
+        },
+      },
+      summary: 'Updated tracker item',
+    };
+
+    render(
+      <Wrapper>
+        <TrackerToolWidget
+          message={makeToolMessage('tracker_update', { id: 'bug_123' }, JSON.stringify(result))}
+          isExpanded={false}
+          onToggle={() => {}}
+          sessionId="tracker-tag-normalization"
+        />
+      </Wrapper>
+    );
+
+    expect(screen.getByText('Tracker Updated')).toBeDefined();
+    expect(screen.getByText('#alpha')).toBeDefined();
+    expect(screen.getByText('#beta')).toBeDefined();
+    expect(screen.getByText('#gamma')).toBeDefined();
   });
 });
 
