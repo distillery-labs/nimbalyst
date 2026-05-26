@@ -27,7 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Catalog permission ids `spawn-process`, `network-loopback`, `network-internet`, and `filesystem` were unenforceable inside a Node backend (the module can `require('child_process')` directly) and are no longer accepted. Manifests that still list them load with a non-fatal warning; the ids are silently dropped when computing effective permissions.
 
 ### Fixed
-- Files Mode editor now surfaces AI edits to blockquote lines as red/green diffs, the same as plain paragraphs. (#433)
 - Project quick open now loads recent projects from stored recents instead of crawling every workspace on open.
 - Rebuild Extensions submenu now lists buildable extensions alphabetically.
 - Shared Excalidraw and mockup tabs no longer come back blank after restart or close+reopen — the document type is now persisted with each open tab and recovered server-side as a backstop.
@@ -41,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Slash-command typeahead now lists commands and skills from Claude CLI plugins (`~/.claude/plugins/`) without requiring the experimental "Agent Workflows" toggle, matching what the Claude Agent SDK auto-loads from `enabledPlugins`.
 - Excalidraw "import mermaid" now registers the rendered diagram image, so it no longer shows as a broken thumbnail. (#428)
 - Codex sessions now append actionable guidance when `~/.codex/config.toml` has a url-based MCP server the bundled Codex rejects, instead of an opaque config-load failure. (#424)
+- Dollar signs in markdown no longer collapse currency text like `$7M ... $40M` as inline LaTeX math. (#447)
 
 ## [0.61.1] - 2026-05-21
 

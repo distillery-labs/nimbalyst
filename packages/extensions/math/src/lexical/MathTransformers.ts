@@ -15,8 +15,11 @@ import {
   MathInlineNode,
 } from './MathInlineNode';
 
-const INLINE_MATH_IMPORT_REGEXP = /\$(?!\$)([^$\n]+?)\$(?!\$)/;
-const INLINE_MATH_SHORTCUT_REGEXP = /\$(?!\$)([^$\n]+?)\$(?!\$)$/;
+// Pandoc-style inline math rules: opening `$` must not be followed by whitespace,
+// closing `$` must not be preceded by whitespace, and closing `$` must not be
+// followed by a digit (so currency like `$7M ... $40M` is not matched as math).
+const INLINE_MATH_IMPORT_REGEXP = /\$(?!\$)(?!\s)([^$\n]*?[^$\s])\$(?!\$)(?!\d)/;
+const INLINE_MATH_SHORTCUT_REGEXP = /\$(?!\$)(?!\s)([^$\n]*?[^$\s])\$$/;
 const BLOCK_MATH_DELIMITER_REGEXP = /^[ \t]*(\${1,2})[ \t]*$/;
 
 export const INLINE_MATH_TRANSFORMER: TextMatchTransformer = {
