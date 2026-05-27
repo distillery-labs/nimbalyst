@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- Worktree git panel now has a Manual/Smart commit toggle and "Commit with AI" button, matching the non-worktree experience.
 - Contextual tips: small bottom-left cards that suggest tracker mode, worktree sessions, the keyboard-shortcuts dialog, and theme exploration based on local feature usage.
 - Tip body now renders basic markdown (paragraphs, bullets, bold).
 - Empty AI session panels now cycle through 15 additional contextual tips: the four embedded editors (Excalidraw, MockupLM, DataModelLM, spreadsheets), shared session and document links, CLAUDE.md standing instructions, auto-commit mode, document history (Cmd+Y), quick open (Cmd+O), content search (Cmd+Shift+F), mobile pairing, scheduled wakeups, action prompts, and the lightning interrupt button.
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 <!-- Bug fixes go here -->
 - Agent transcript no longer collapses `$7M ... $40M`-style currency text into LaTeX. (#462)
+- Smart commit in worktree sessions now resolves session-edited files against the worktree path, so the cross-reference with git status correctly matches.
 - Blitz no longer silently dismisses the dialog when run against a workspace whose git repo has no commits. (#455)
 
 ### Removed
