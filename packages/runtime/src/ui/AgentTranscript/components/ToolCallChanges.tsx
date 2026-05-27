@@ -104,6 +104,8 @@ export const ToolCallChanges: React.FC<ToolCallChangesProps> = ({
   const totalAdded = diffs.reduce((sum, d) => sum + (d.linesAdded ?? 0), 0);
   const totalRemoved = diffs.reduce((sum, d) => sum + (d.linesRemoved ?? 0), 0);
   const fileCount = diffs.length;
+  const primaryFilePath = diffs[0]?.filePath;
+  const primarySupportsEmbeddedPreview = !!canEmbedFile?.(diffs[0]?.filePath);
   const summaryParts = [`${fileCount} file${fileCount !== 1 ? 's' : ''} changed`];
   if (totalAdded > 0) summaryParts.push(`+${totalAdded}`);
   if (totalRemoved > 0) summaryParts.push(`-${totalRemoved}`);
@@ -149,8 +151,17 @@ export const ToolCallChanges: React.FC<ToolCallChangesProps> = ({
             const badge = getOperationBadge(diff.operation);
             const hasDiffContent = diff.diffs.length > 0;
             const hasNewContent = !hasDiffContent && !!diff.content;
+            const isSecondaryEmbeddableFile =
+              diff.filePath !== primaryFilePath &&
+              !!canEmbedFile?.(diff.filePath);
             const shouldUseEmbeddedPreview =
-              !!renderEmbeddedFile && !!canEmbedFile?.(diff.filePath);
+              !!renderEmbeddedFile &&
+              primarySupportsEmbeddedPreview &&
+              !!canEmbedFile?.(diff.filePath);
+
+            if (!primarySupportsEmbeddedPreview && isSecondaryEmbeddableFile) {
+              return null;
+            }
 
             return (
               <div key={`${diff.filePath}-${idx}`} className="border-t border-nim first:border-t-0">
