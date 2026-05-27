@@ -527,6 +527,41 @@ describe('EditToolResultCard', () => {
     );
     expect(container.innerHTML).toBe('');
   });
+
+  it('does not append embedded secondary files when the primary edited file is markdown', () => {
+    const message = makeToolMessage('Edit', {
+      file_path: '/workspace/nimbalyst-local/plans/formula-sheet-editor.md',
+    });
+    const edits = [
+      {
+        filePath: '/workspace/nimbalyst-local/plans/formula-sheet-editor.md',
+        old_string: 'old',
+        new_string: 'new',
+      },
+      {
+        filePath: '/workspace/nimbalyst-local/plans/formula-sheet-editor.excalidraw',
+        content: '{"type":"excalidraw"}',
+      },
+    ];
+    const renderEmbeddedFile = vi.fn(({ filePath }: { filePath: string }) => (
+      <div data-testid="embedded-preview">{filePath}</div>
+    ));
+
+    render(
+      <EditToolResultCard
+        toolMessage={message}
+        edits={edits}
+        workspacePath="/workspace"
+        renderEmbeddedFile={renderEmbeddedFile}
+        canEmbedFile={(filePath) => filePath.endsWith('.excalidraw')}
+      />
+    );
+
+    expect(renderEmbeddedFile).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('embedded-preview')).toBeNull();
+    expect(screen.getAllByText(/formula-sheet-editor\.md/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/formula-sheet-editor\.excalidraw/)).toBeNull();
+  });
 });
 
 // ============================================================================
@@ -1485,6 +1520,51 @@ describe('ToolCallChanges', () => {
       />
     );
     expect(container.innerHTML).toBe('');
+  });
+
+  it('does not render embedded secondary files when the first changed file is markdown', async () => {
+    const renderEmbeddedFile = vi.fn(({ filePath }: { filePath: string }) => (
+      <div data-testid="embedded-preview">{filePath}</div>
+    ));
+
+    render(
+      <ToolCallChanges
+        toolCallItemId="tc-2"
+        getToolCallDiffs={async () => [
+          {
+            filePath: '/workspace/nimbalyst-local/plans/formula-sheet-editor.md',
+            operation: 'edit',
+            diffs: [{ oldString: 'old', newString: 'new' }],
+            linesAdded: 1,
+            linesRemoved: 1,
+          },
+          {
+            filePath: '/workspace/nimbalyst-local/plans/formula-sheet-editor.excalidraw',
+            operation: 'create',
+            diffs: [],
+            content: '{"type":"excalidraw"}',
+            linesAdded: 1,
+            linesRemoved: 0,
+          },
+        ]}
+        isExpanded={true}
+        workspacePath="/workspace"
+        renderEmbeddedFile={renderEmbeddedFile}
+        canEmbedFile={(filePath) => filePath.endsWith('.excalidraw')}
+      />
+    );
+
+    expect(screen.queryByText('File Changes')).toBeNull();
+    await rtl.waitFor(() => {
+      expect(screen.getByText('File Changes')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText('File Changes'));
+
+    expect(renderEmbeddedFile).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('embedded-preview')).toBeNull();
+    expect(screen.getAllByText(/formula-sheet-editor\.md/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/formula-sheet-editor\.excalidraw/)).toBeNull();
   });
 });
 
