@@ -10,14 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- Claude Code sessions use the SDK's `permissionMode: 'auto'` classifier when workspace trust is "Allow All"; safe operations run silently, uncertain ones prompt the user. (#379)
 
 ### Changed
 <!-- Changes to existing functionality go here -->
 
 ### Fixed
 <!-- Bug fixes go here -->
-- Auto mode: PermissionDenied hook now always re-prompts the user when the SDK classifier denies a tool call. (#379)
-- Auto mode: classifier-escalated tool calls no longer bypass-all silently; escalations reach the permission prompt. (#379)
 - Agent transcript no longer collapses `$7M ... $40M`-style currency text into LaTeX. (#462)
 - Blitz no longer silently dismisses the dialog when run against a workspace whose git repo has no commits. (#455)
 
