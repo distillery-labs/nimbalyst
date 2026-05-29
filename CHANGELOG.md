@@ -13,16 +13,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 <!-- Changes to existing functionality go here -->
-- Auto-update now downloads in the background and shows only the "Ready to install" toast; the redundant "Update Available" toast has been removed. (#327)
 
 ### Fixed
 <!-- Bug fixes go here -->
-- Auto mode: PermissionDenied hook now always re-prompts the user when the SDK classifier denies a tool call (was silently swallowed due to checking a non-existent `reason_type` field). (#371)
-- Auto mode: classifier-escalated tool calls no longer bypass-all silently; escalations now reach the permission prompt so the user decides on uncertain/destructive ops. (#371)
-- Codex session-naming reminder no longer leaks into the chat transcript; its turn output is tagged so the transcript hides it. (#420)
+- Auto mode: PermissionDenied hook now always re-prompts the user when the SDK classifier denies a tool call. (#379)
+- Auto mode: classifier-escalated tool calls no longer bypass-all silently; escalations reach the permission prompt. (#379)
+- Agent transcript no longer collapses `$7M ... $40M`-style currency text into LaTeX. (#462)
+- Blitz no longer silently dismisses the dialog when run against a workspace whose git repo has no commits. (#455)
 
 ### Removed
 <!-- Removed features go here -->
+
+## [0.62.0] - 2026-05-26
+
+
+### Added
+- Non-markdown shared documents (Excalidraw, Mindmap, Mockup, etc.) now show the unified editor header bar with breadcrumb, View History, and local-source actions.
+- Editor header bar's "Shared to Team" dropdown links to the shared document, showing its name with the team-side folder path in subscript.
+- Shared documents have revision history: Cmd/Ctrl+S saves a named version, auto snapshots run after idle, and any past revision can be restored.
+- Custom shared-document editors can publish history controllers so the global History dialog can route to collaborative revisions.
+- Extensions SDK permissions and backend modules.
+- Extension panels can run read-only SQL via `host.data.query()` against the local PGLite store when the manifest declares `nimbalyst-database-read`.
+- Backend-module allowlist: only built-in extensions, curated marketplace ids, and dev-installed extensions with `NIMBALYST_ALLOW_DEV_BACKEND_MODULES=1` can ship native-code backends.
+
+### Changed
+- Auto-update downloads in the background and shows only the "Ready to install" toast; the redundant "Update Available" toast is removed. (#327)
+- Extension docs now cover all four markdown/transcript contribution surfaces in both the internal architecture doc and the public SDK docs.
+- Backend-module consent prompt leads with an explicit "this extension will run native code on your computer" banner; granular catalog ids only cover host-brokered services.
+
+### Fixed
+- Claude Code sessions break out of the SDK iterator after the `result` chunk so the binary's task-list reminder hook can't emit a 14+ minute `tool_result(Stream closed)` flood that pins sendMessage open.
+- Claude Code sessions flip to "ready" the moment the model's turn finishes instead of sitting on the last output for up to 30 s while the SDK stdin grace period expired.
+- Claude Code sessions no longer reset mid-conversation when the agent spawns sub-agents. (#451, #456, #457)
+- CI `npm ci` no longer fails resolving `@nimbalyst/collab-adapters`; the workspace was missing from `package-lock.json`.
+- Project quick open loads recent projects from stored recents instead of crawling every workspace on open.
+- Rebuild Extensions submenu lists buildable extensions alphabetically.
+- Shared Excalidraw and mockup tabs no longer come back blank after restart or close+reopen.
+- Tracker list, table, and kanban views share the session-style `#tag` typeahead filter.
+- Session history search bar no longer overlaps floating popovers (e.g. Claude Usage).
+- Re-uploading a local source into a shared markdown document waits for the collab write to be acknowledged before tearing down the headless sync client.
+- Codex session-naming reminder no longer leaks into the chat transcript. (#420)
+- Mobile sync picks up Codex sessions running in git worktrees by resolving worktree workspaceIds to the parent project path. (#430) Thanks @stamkivi.
+- Claude Code plugins installed at the project scope appear in the Installed plugins list with marketplace and scope badges.
+- Slash-command typeahead lists commands and skills from Claude CLI plugins without requiring the experimental "Agent Workflows" toggle.
+- Excalidraw "import mermaid" registers the rendered diagram image, so it no longer shows as a broken thumbnail. (#428)
+- Codex sessions append actionable guidance when `~/.codex/config.toml` has a url-based MCP server the bundled Codex rejects, instead of an opaque failure. (#424)
+- Dollar signs in markdown no longer collapse currency text like `$7M ... $40M` as inline LaTeX; the typing-time `$...$` shortcut is replaced by slash-menu "Math (inline)" / "Math (block)". (#447)
+- Trackers panel refetches when switching projects in the sidebar rail instead of staying pinned to the workspace that was active at app startup. (#441)
+
+### Removed
+- Catalog permission ids `spawn-process`, `network-loopback`, `network-internet`, and `filesystem` are no longer accepted; they were unenforceable inside a Node backend. Manifests listing them load with a non-fatal warning.
 
 ## [0.61.1] - 2026-05-21
 

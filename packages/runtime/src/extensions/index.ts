@@ -50,6 +50,7 @@ export type {
   SettingsPanelProps,
   ExtensionStorage,
   ExtensionFileStorage,
+  ExtensionDataAccess,
   ExecOptions,
   ExecResult,
   // Theme types
@@ -110,6 +111,7 @@ export type {
   CollaborationContext,
   CollaborationStatus,
   CollaboratorInfo,
+  RevisionSnapshotAdapter,
   StandardAwarenessState,
 } from './editorHost';
 

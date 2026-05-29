@@ -68,6 +68,18 @@ export {
   CollabLexicalProvider,
 } from './CollabLexicalProvider';
 
+export {
+  CollabHistoryClient,
+  CollabHistoryError,
+  decryptRevisionPayload,
+} from './collabHistoryClient';
+
+export type {
+  CollabHistoryClientConfig,
+  CreateRevisionInput,
+  LoadedRevision,
+} from './collabHistoryClient';
+
 export type {
   DocumentSyncConfig,
   DocumentSyncStatus,
@@ -166,6 +178,12 @@ export type {
 
 export { HeadlessLexicalYDoc } from './HeadlessLexicalYDoc';
 export type { HeadlessLexicalYDocOptions } from './HeadlessLexicalYDoc';
+
+export { MarkdownCollabContentAdapter } from './MarkdownCollabContentAdapter';
+export {
+  createRevisionAdapterFromCollabContent,
+  type CollabAdapterRevisionBridgeOptions,
+} from './revisionSnapshotBridge';
 
 export {
   TrackerSyncEngine,
