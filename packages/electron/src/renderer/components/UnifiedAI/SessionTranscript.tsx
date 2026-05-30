@@ -16,7 +16,7 @@
 
 import React, { useCallback, useRef, useImperativeHandle, forwardRef, useEffect, useState, useMemo } from 'react';
 import { useAtom, useSetAtom, useAtomValue } from 'jotai';
-import { store, setInteractiveWidgetHost } from '@nimbalyst/runtime/store';
+import { store, registerInteractiveWidgetHost, unregisterInteractiveWidgetHost } from '@nimbalyst/runtime/store';
 import type { SessionData, ChatAttachment, TranscriptViewMessage } from '@nimbalyst/runtime/ai/server/types';
 import { AgentTranscriptPanel } from '@nimbalyst/runtime/ui/AgentTranscript/components/AgentTranscriptPanel';
 import type { InteractiveWidgetHost, PermissionScope } from '@nimbalyst/runtime/ui/AgentTranscript/components/CustomToolWidgets/InteractiveWidgetHost';
@@ -1452,10 +1452,21 @@ export const SessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscr
 
   // Note: AskUserQuestion, ToolPermission handlers removed - now handled by inline widgets via InteractiveWidgetHost
 
-  // Set the interactive widget host in the atom - widgets read from here
-  // This provides methods for widgets to call that have access to atoms, callbacks, and analytics
-  useEffect(() => {
-    const host: InteractiveWidgetHost = {
+  // Set the interactive widget host in the atom - widgets read from here.
+  // This provides methods for widgets to call that have access to atoms, callbacks, and analytics.
+  //
+  // We use a *stable proxy* whose methods read from `liveHostRef` (refreshed
+  // every render), and a multi-owner registry (`registerInteractiveWidgetHost`)
+  // so two SessionTranscripts displaying the same session -- e.g. one in
+  // Files-mode ChatSidebar and one in Agent mode -- can coexist without
+  // clobbering each other's host. Without multi-owner, the chat sidebar's
+  // host effect unmount/cleanup would null the atom even though the
+  // agent-mode transcript is still mounted, leaving the AskUserQuestion
+  // widget stuck with no host (header visible, options blank) until the
+  // user switched sessions.
+  const liveHostRef = useRef<InteractiveWidgetHost | null>(null);
+  // Build the live host on every render so its closures stay current.
+  const liveHost: InteractiveWidgetHost = {
       sessionId,
       workspacePath: workspacePath || '',
       worktreeId,
@@ -1733,32 +1744,44 @@ export const SessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscr
       trackEvent: (eventName: string, properties?: Record<string, unknown>) => {
         posthog?.capture(eventName, properties);
       },
+  };
+  liveHostRef.current = liveHost;
+
+  useEffect(() => {
+    // Stable proxy: identity is fixed for the lifetime of this {sessionId,
+    // workspacePath, worktreeId} tuple. Methods delegate to the live ref so
+    // closures stay current without re-registering the host on every render.
+    const proxy: InteractiveWidgetHost = {
+      get sessionId() { return liveHostRef.current?.sessionId ?? sessionId; },
+      get workspacePath() { return liveHostRef.current?.workspacePath ?? (workspacePath || ''); },
+      get worktreeId() { return liveHostRef.current?.worktreeId ?? worktreeId; },
+      get autoCommitEnabled() { return liveHostRef.current?.autoCommitEnabled ?? false; },
+      get diffPeekSize() { return liveHostRef.current?.diffPeekSize ?? { width: 0, height: 0 }; },
+      askUserQuestionSubmit: (...args) => liveHostRef.current!.askUserQuestionSubmit(...args),
+      askUserQuestionCancel: (...args) => liveHostRef.current!.askUserQuestionCancel(...args),
+      requestUserInputSubmit: (...args) => liveHostRef.current!.requestUserInputSubmit(...args),
+      requestUserInputCancel: (...args) => liveHostRef.current!.requestUserInputCancel(...args),
+      exitPlanModeApprove: (...args) => liveHostRef.current!.exitPlanModeApprove(...args),
+      exitPlanModeStartNewSession: (...args) => liveHostRef.current!.exitPlanModeStartNewSession(...args),
+      exitPlanModeDeny: (...args) => liveHostRef.current!.exitPlanModeDeny(...args),
+      exitPlanModeCancel: (...args) => liveHostRef.current!.exitPlanModeCancel(...args),
+      toolPermissionSubmit: (...args) => liveHostRef.current!.toolPermissionSubmit(...args),
+      toolPermissionCancel: (...args) => liveHostRef.current!.toolPermissionCancel(...args),
+      setAutoCommitEnabled: (...args) => liveHostRef.current!.setAutoCommitEnabled(...args),
+      gitCommit: (...args) => liveHostRef.current!.gitCommit(...args),
+      gitCommitCancel: (...args) => liveHostRef.current!.gitCommitCancel(...args),
+      gitFileDiff: (...args) => liveHostRef.current!.gitFileDiff(...args),
+      setDiffPeekSize: (...args) => liveHostRef.current!.setDiffPeekSize(...args),
+      superLoopBlockedFeedback: (...args) => liveHostRef.current!.superLoopBlockedFeedback(...args),
+      openFile: (...args) => liveHostRef.current!.openFile(...args),
+      trackEvent: (...args) => liveHostRef.current!.trackEvent(...args),
     };
 
-    setInteractiveWidgetHost(sessionId, host);
-
-    // Cleanup on unmount or sessionId change
+    registerInteractiveWidgetHost(sessionId, proxy);
     return () => {
-      setInteractiveWidgetHost(sessionId, null);
+      unregisterInteractiveWidgetHost(sessionId, proxy);
     };
-  }, [
-    sessionId,
-    workspacePath,
-    worktreeId,
-    sessionWorktreePath,
-    handleExitPlanModeApprove,
-    handleExitPlanModeStartNewSession,
-    handleExitPlanModeDeny,
-    handleExitPlanModeCancel,
-    refreshPendingPrompts,
-    respondToPrompt,
-    posthog,
-    autoCommitEnabled,
-    setAutoCommitEnabled,
-    diffPeekSize,
-    setDiffPeekSize,
-    onFileClick,
-  ]);
+  }, [sessionId, workspacePath, worktreeId]);
 
   // Feature flags
   const enableSlashCommands = supportsWorkspaceSlashCommands(provider);

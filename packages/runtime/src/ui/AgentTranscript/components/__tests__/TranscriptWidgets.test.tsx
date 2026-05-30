@@ -724,6 +724,17 @@ describe('AskUserQuestionWidget', () => {
     expect(screen.getByTestId('ask-user-question-widget')).toBeDefined();
     expect(screen.getByTestId('ask-user-question-widget').dataset.state).toBe('pending');
     expect(screen.getByText('Waiting...')).toBeDefined();
+    // Regression: even without a host, the question options must render so the
+    // user can read them. Previously the no-host branch returned a bare
+    // "Waiting..." header with no body, which left the widget looking broken
+    // after switching to Files mode and back.
+    const options = screen.getAllByTestId('ask-user-question-option');
+    expect(options.length).toBe(2);
+    expect(screen.getByText('React')).toBeDefined();
+    expect(screen.getByText('Vue')).toBeDefined();
+    // Submit must stay disabled until the host arrives.
+    expect((screen.getByTestId('ask-user-question-submit') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('ask-user-question-cancel') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('renders completed state with answers', () => {
