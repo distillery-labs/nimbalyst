@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+<!-- New features go here -->
+
+### Changed
+<!-- Changes to existing functionality go here -->
+
+### Fixed
+<!-- Bug fixes go here -->
+
+### Removed
+<!-- Removed features go here -->
+
+## [0.63.0] - 2026-05-30
+
+
+### Added
 - Claude Opus 4.8 is now selectable in the Claude provider (1M context, dateless ID `claude-opus-4-8`) and is the default Claude model for new installs. (#473)
 - Claude Code variants `opus-4-7` and `opus-4-7-1m` pinned to Opus 4.7 so it stays selectable after the canonical `opus` alias was bumped to 4.8. (#473)
 <!-- New features go here -->
@@ -27,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Monaco editor host wrappers now support custom load/save content transforms so extensions can present normalized editor views while preserving richer on-disk source formats.
 - Bumping a tip or walkthrough version now re-shows it even if the prior version was completed or dismissed.
 - The alpha SQLite backend now migrates session, transcript, tracker, and document stores more completely, with worker-backed execution and expanded validation/adoption flows to keep large migrations and database browsing responsive.
+- Blitz, Super Loops, and Meta Agent now appear in the new-session menu for any user with their alpha feature enabled, instead of being hidden behind developer mode. (#438)
+- Transcript tool-call diff enrichment moved to the main process, removing per-render IPC chatter from the renderer.
+- Cloudflare session sync now clamps payloads more aggressively and routes metadata-only index updates through a lightweight path to cut server write churn.
 
 ### Fixed
 <!-- Bug fixes go here -->
@@ -50,6 +68,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shared-document history now records bootstrap and manual revisions reliably; Cmd/Ctrl+S inside a collab editor creates a manual revision, and Restore waits for pending writes to settle before bailing on transient sync status.
 - Session history no longer pegs the renderer at 100% CPU during AI streaming.
 - Slow `getPendingFilesForSession` query that compounded the streaming slowdown now uses a partial expression index and a short-lived cache.
+- Monaco editor now picks the right dark or light base theme for extension themes whose IDs don't include `-dark` (e.g. rose-pine), so the editor matches the rest of the UI.
+- Developer Dashboard no longer crashes when database stats arrive in the SQLite instrumentation shape instead of the legacy per-table counts shape.
+- Extension uninstall now also prunes settings for providers contributed under `aiAgentProviders`, not just `aiProviders`, so the ghost-provider cleanup keeps working with the new contribution point. (follow-up to #446)
 
 ### Removed
 <!-- Removed features go here -->
