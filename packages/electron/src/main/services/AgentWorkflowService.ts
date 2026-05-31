@@ -981,7 +981,7 @@ export class AgentWorkflowService {
           name: source.namespace,
           version: '1.0.0',
           description: source.description || source.displayName,
-          author: { name: 'Nimbalyst' },
+          author: { name: 'Distillery Labs' },
         }, null, 2),
       );
       await removeUnexpectedEntries(path.join(pluginRoot, '.claude-plugin'), new Set(['plugin.json']));

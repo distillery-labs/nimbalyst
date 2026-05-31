@@ -122,6 +122,9 @@
     "zod": "^4.0.0",
     "zustand": "^5.0.9"
   },
+  "optionalDependencies": {
+    "node-mac-permissions": "^2.5.0"
+  },
   "devDependencies": {
     "@electron/notarize": "^2.3.2",
     "@eslint/js": "^9.37.0",
@@ -157,7 +160,7 @@
   },
   "build": {
     "appId": "com.nimbalyst.electron",
-    "productName": "Nimbalyst",
+    "productName": "Distill",
     "electronVersion": "41.0.4",
     "nodeGypRebuild": false,
     "buildDependenciesFromSource": false,
@@ -388,8 +391,10 @@
       "notarize": false,
       "extendInfo": {
         "NSLocalNetworkUsageDescription": "Nimbalyst needs access to local network devices for features like MCP servers and local AI model connections.",
-        "NSMicrophoneUsageDescription": "Nimbalyst uses the microphone for Voice Mode, allowing you to interact with the AI assistant using your voice.",
-        "NSAppleEventsUsageDescription": "Nimbalyst opens Terminal.app to run the Claude Code login and logout flows."
+        "NSMicrophoneUsageDescription": "Nimbalyst uses the microphone for Voice Mode and for capturing system audio (e.g., meeting transcription) via Core Audio process taps.",
+        "NSAppleEventsUsageDescription": "Nimbalyst opens Terminal.app to run the Claude Code login and logout flows.",
+        "NSPhotoLibraryUsageDescription": "Nimbalyst reads your Photos library when you ask an AI tool to search, summarize, or reference photos.",
+        "NSScreenCaptureUsageDescription": "Nimbalyst captures the screen (and optionally system audio) when you ask an AI tool to see what you are looking at or transcribe an audio source."
       }
     },
     "dmg": {

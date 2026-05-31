@@ -47,6 +47,7 @@ import { AlphaBadge } from '../common/AlphaBadge';
 import { defaultAgentModelAtom } from '../../store/atoms/appSettings';
 import { usePostHog } from 'posthog-js/react';
 import { WorkspaceSummaryHeader, generateWorkspaceAccentColor } from '../WorkspaceSummaryHeader';
+import { WorkspaceCostSummary } from '../WorkspaceCostSummary';
 import { errorNotificationService } from '../../services/ErrorNotificationService';
 import { FloatingPortal, useFloatingMenu } from '../../hooks/useFloatingMenu';
 import './SessionHistory.css';
@@ -2999,6 +3000,7 @@ const SessionHistoryComponent: React.FC<SessionHistoryProps> = ({
           </>
         }
       />
+      <WorkspaceCostSummary workspacePath={workspacePath} />
       <div className="session-history-section-label px-3 py-1.5 text-[11px] font-semibold text-[var(--nim-text-faint)] uppercase tracking-wider border-b border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] shrink-0">Agent Sessions</div>
       <div className="session-history-search px-3 py-2 border-b border-[var(--nim-border)] shrink-0 relative z-10">
         <input

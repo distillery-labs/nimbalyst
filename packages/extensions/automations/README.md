@@ -129,6 +129,94 @@ output:
   location: nimbalyst-local/automations/my-automation/
 ```
 
+## Precheck Scripts
+
+An automation can run a shell or Python script before each tick. The script
+decides whether to escalate to the agent, and can pass a payload that becomes
+part of the prompt. This is useful for "poll a data source, only invoke the
+agent when something interesting changed" workflows.
+
+Add a `precheck` block under `automationStatus`:
+
+```yaml
+automationStatus:
+  id: rss-digest
+  title: RSS Digest
+  enabled: true
+  schedule:
+    type: interval
+    intervalMinutes: 15
+  precheck:
+    script: ./scripts/check-feed.py
+    args: ["--quiet"]
+    timeoutSeconds: 30
+    skipExitCode: 99
+  output:
+    mode: append
+    location: nimbalyst-local/automations/rss-digest/
+  runCount: 0
+---
+
+# RSS Digest
+
+Summarize the new items below into a daily briefing.
+
+{{script_output}}
+```
+
+### Exit-code semantics
+
+| Exit code | Outcome |
+|-----------|---------|
+| `0` | Escalate. Stdout becomes the agent payload. |
+| `skipExitCode` (default `99`) | Skip cleanly. No agent call, no output file, recorded as `skipped` in history. |
+| Any other non-zero | Error. Recorded as `error` with stderr captured; surfaces as an error toast. |
+
+### Stdout handling
+
+If stdout is a JSON object like `{"escalate": false}` or `{"payload": "..."}`,
+the fields are honored:
+
+- `escalate: false` overrides exit code 0 and skips the tick
+- `payload` (string) is used as the agent payload instead of raw stdout
+
+Otherwise the entire stdout is used as the payload verbatim.
+
+### Where the payload goes
+
+If the prompt body contains `{{script_output}}`, the payload is substituted
+in place (every occurrence). Otherwise it is appended under a `## Script
+Output` heading at the end of the prompt.
+
+### Environment variables
+
+The script is run with these env vars injected (in addition to the host's
+process env):
+
+- `NIMBALYST_AUTOMATION_ID` — the automation's `id`
+- `NIMBALYST_WORKSPACE` — absolute path to the workspace root
+- `NIMBALYST_LAST_RUN` — ISO timestamp of the previous successful run (empty on first run)
+
+The script's working directory defaults to the workspace root.
+
+### Minimal Python example
+
+```python
+#!/usr/bin/env python3
+# scripts/check-feed.py
+import json, sys, urllib.request
+
+resp = urllib.request.urlopen("https://example.com/feed.json").read()
+items = json.loads(resp).get("items", [])
+new_items = [i for i in items if is_new(i)]
+
+if not new_items:
+    sys.exit(99)  # nothing new — skip this tick
+
+print(json.dumps({"payload": format_items(new_items)}))
+sys.exit(0)        # escalate to agent
+```
+
 ## Document Header
 
 When you open an automation file, a header bar appears above the editor with:

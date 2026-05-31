@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Claude Code variants `opus-4-7` and `opus-4-7-1m` pinned to Opus 4.7 so it stays selectable after the canonical `opus` alias was bumped to 4.8. (#473)
 - Claude Code sessions use the SDK's `permissionMode: 'auto'` classifier when workspace trust is "Allow All"; safe operations run silently, uncertain ones prompt the user. (#379)
 - TrustIndicator sidebar icon for "Allow All" no longer uses the warning triangle/yellow color, reflecting that the auto-classifier now reviews operations rather than blanket-bypassing them. (fork-local)
+- Automations can declare a `precheck` script (shell or Python) that runs before each tick: exit 0 escalates to the agent (stdout becomes the payload), exit 99 skips cleanly, anything else is recorded as an error. Enables "poll source, only invoke agent on changes" workflows. Adds `process` permission and `services.process.run` to the extension SDK. (fork-local)
 <!-- New features go here -->
 
 ### Changed

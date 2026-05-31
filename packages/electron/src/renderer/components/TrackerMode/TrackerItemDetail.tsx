@@ -25,6 +25,7 @@ import { buildTrackerDeepLink } from '../../store/atoms/collabDocuments';
 import { errorNotificationService } from '../../services/ErrorNotificationService';
 import { getRelativeTimeString } from '../../utils/dateFormatting';
 import { useTrackerContentCollab } from '../../hooks/useTrackerContentCollab';
+import { TrackerCostPanel } from './TrackerCostPanel';
 
 interface TrackerItemDetailProps {
   itemId: string;
@@ -209,7 +210,7 @@ export const TrackerItemDetail: React.FC<TrackerItemDetailProps> = ({
       await navigator.clipboard.writeText(url);
       errorNotificationService.showInfo(
         'Link copied',
-        'Paste it anywhere to open this tracker in Nimbalyst.',
+        'Paste it anywhere to open this tracker in Distill.',
         { duration: 3000 }
       );
     } catch (err) {
@@ -1140,6 +1141,9 @@ export const TrackerItemDetail: React.FC<TrackerItemDetailProps> = ({
             <p className="text-sm text-nim-faint m-0">No content</p>
           )}
         </div>
+
+        {/* Cost rollup across linked sessions */}
+        <TrackerCostPanel trackerId={item.id} refreshKey={linkedSessions.length} />
 
         {/* Linked Sessions */}
         {(linkedSessions.length > 0 || onLaunchSession || canLinkExistingSession || isLinkingExistingSession) && (

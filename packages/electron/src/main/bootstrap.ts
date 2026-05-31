@@ -87,7 +87,7 @@ process.on('uncaughtException', (error: Error & { code?: string }) => {
   }
   _dialogTimestamps.push(now);
 
-  dialog.showErrorBox('Nimbalyst - Uncaught Exception', `${error.name}: ${error.message}\n\n${error.stack || ''}`);
+  dialog.showErrorBox('Distill - Uncaught Exception', `${error.name}: ${error.message}\n\n${error.stack || ''}`);
 });
 
 // Parse --user-data-dir from command line args or environment variable

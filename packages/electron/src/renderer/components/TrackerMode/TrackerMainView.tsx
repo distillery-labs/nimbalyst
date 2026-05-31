@@ -437,7 +437,7 @@ export const TrackerMainView: React.FC<TrackerMainViewProps> = ({
       await navigator.clipboard.writeText(url);
       errorNotificationService.showInfo(
         'Link copied',
-        'Paste it anywhere to open this tracker in Nimbalyst.',
+        'Paste it anywhere to open this tracker in Distill.',
         { duration: 3000 }
       );
     } catch (err) {

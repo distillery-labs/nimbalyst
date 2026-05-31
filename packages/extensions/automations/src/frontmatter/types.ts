@@ -60,31 +60,76 @@ export interface AutomationOutput {
   fileNameTemplate?: string;
 }
 
+/**
+ * Optional pre-check step. Runs before the agent on each tick.
+ *
+ * Exit code controls escalation:
+ *   - 0                  -> escalate to the agent; stdout becomes the payload
+ *   - `skipExitCode`     -> skip this tick cleanly (no agent invocation, no
+ *                           output file written; recorded as `skipped` in history)
+ *   - any other non-zero -> treat as an error; recorded as `error` in history
+ *                          with stderr captured
+ *
+ * Stdout handling on escalate: if the script emits a JSON object on stdout
+ * with shape `{ "escalate": boolean, "payload": "..." }`, those fields are
+ * respected. Otherwise the raw stdout becomes the payload verbatim. If the
+ * prompt body contains `{{script_output}}`, the payload is substituted there;
+ * otherwise it is appended to the prompt under a `## Script Output` heading.
+ *
+ * Env vars injected into the script:
+ *   - NIMBALYST_AUTOMATION_ID
+ *   - NIMBALYST_WORKSPACE
+ *   - NIMBALYST_LAST_RUN  (ISO timestamp, empty on first run)
+ */
+export interface AutomationPrecheck {
+  /** Path to the script (resolved relative to workspace root). */
+  script: string;
+  /** Arguments passed to the script. */
+  args?: string[];
+  /** Hard timeout in seconds. Default 30. */
+  timeoutSeconds?: number;
+  /** Exit code that means "skip this tick". Default 99. */
+  skipExitCode?: number;
+}
+
 export interface AutomationStatus {
   id: string;
   title: string;
   enabled: boolean;
   schedule: AutomationSchedule;
   output: AutomationOutput;
+  /** Optional pre-check script that gates whether the agent is invoked. */
+  precheck?: AutomationPrecheck;
   provider?: 'claude-code' | 'claude' | 'openai';
   /** Model ID to use (e.g. 'claude-code:opus', 'claude-code:sonnet', 'claude:claude-sonnet-4-5-20241022') */
   model?: string;
   lastRun?: string;
-  lastRunStatus?: 'success' | 'error';
+  lastRunStatus?: 'success' | 'error' | 'skipped';
   lastRunError?: string;
+  /** When the last run was skipped by the precheck, why. */
+  lastSkipReason?: string;
   nextRun?: string;
   runCount: number;
+  /** Number of ticks where the precheck skipped without invoking the agent. */
+  skipCount?: number;
 }
 
 /**
  * A single execution record stored in history.json.
+ *
+ * `status: 'skipped'` means the precheck script intentionally declined to
+ * invoke the agent (no output file is written). `status: 'error'` covers
+ * both agent failures and precheck failures (timeout or unexpected exit
+ * code).
  */
 export interface ExecutionRecord {
   id: string;
   timestamp: string;
   durationMs: number;
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'skipped';
   error?: string;
+  /** Reason supplied when status is 'skipped' (e.g. exit code, "no-changes"). */
+  skipReason?: string;
   sessionId?: string;
   outputFile?: string;
 }

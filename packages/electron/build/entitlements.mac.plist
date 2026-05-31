@@ -22,9 +22,15 @@
     <true/>
     <key>com.apple.security.network.server</key>
     <true/>
-    <!-- NOTE: Microphone entitlement intentionally omitted -->
-    <!-- Without this entitlement, the app won't trigger microphone permission prompts -->
-    <!-- when Claude Agent SDK spawns subprocesses. Users who want Voice Mode will -->
-    <!-- need to manually grant microphone permission in System Settings. -->
+    <!-- Microphone access for Voice Mode (local-build override) -->
+    <!-- Upstream omits this because notarized builds inherit it into spawned -->
+    <!-- subprocesses. In our local build that risk is acceptable, and without it -->
+    <!-- macOS never shows the permission prompt and the app never appears in -->
+    <!-- System Settings > Privacy & Security > Microphone. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <!-- Photos library access (osxphotos and other Apple Photos tools) -->
+    <key>com.apple.security.personal-information.photos-library</key>
+    <true/>
 </dict>
 </plist>

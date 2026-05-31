@@ -108,6 +108,7 @@ import { registerMockupHandlers } from './ipc/MockupHandlers';
 import { registerOffscreenEditorHandlers } from './ipc/OffscreenEditorHandlers';
 import { initVoiceModeService } from './services/voice/VoiceModeService';
 import { initVoiceModeSettingsHandler } from './services/voice/VoiceModeSettingsHandler';
+import { initPhotosPermissionHandlers } from './ipc/PhotosPermissionHandlers';
 import { registerWalkthroughHandlers } from './ipc/WalkthroughHandlers';
 import { registerDataModelHandlers } from './ipc/DataModelHandlers';
 import { registerClaudeUsageHandlers } from './ipc/ClaudeUsageHandlers';
@@ -142,6 +143,7 @@ import { database, HandledError } from './database/PGLiteDatabaseWorker';
 import { AnalyticsService } from "./services/analytics/AnalyticsService.ts";
 import { registerAnalyticsHandlers } from "./ipc/AnalyticsHandlers.ts";
 import { registerFeatureUsageHandlers } from "./ipc/FeatureUsageHandlers.ts";
+import { registerCostHandlers } from "./ipc/CostHandlers.ts";
 import { FeatureUsageService, FEATURES } from "./services/FeatureUsageService.ts";
 import { shutdownStytchAuth, handleAuthCallback, isAuthenticated } from './services/StytchAuthService';
 import { registerTrackerSyncHandlers, initializeTrackerSync } from './services/TrackerSyncManager';
@@ -167,6 +169,12 @@ if (process.env.ELECTRON_RUN_AS_NODE === '1' && process.platform === 'darwin') {
     app.dock.hide();
   }
 }
+
+// Force the app name to the product name so menu bar / About panel show
+// "Distill" in dev mode (where app.getName() would otherwise return the
+// package.json "name" field, "@nimbalyst/electron"). In packaged builds this
+// is already set from electron-builder's productName.
+app.setName('Distill');
 
 // Windows notifications require a stable AppUserModelID.
 if (process.platform === 'win32') {
@@ -281,7 +289,7 @@ async function checkForRestartContinuation(aiService: AIService): Promise<void> 
                 await queuedPromptsStore.create({
                     id: `restart-continuation-${sessionId}-${Date.now()}`,
                     sessionId,
-                    prompt: 'Nimbalyst has restarted. Please continue with your work.'
+                    prompt: 'Distill has restarted. Please continue with your work.'
                 });
                 successCount++;
                 logger.main.info(`[RestartContinuation] Queued continuation prompt for session ${sessionId}`);
@@ -1303,23 +1311,23 @@ app.whenReady().then(async () => {
             const dbPath = join(app.getPath('userData'), 'pglite-db');
 
             dialog.showErrorBox(
-                'Nimbalyst - Database Initialization Failed',
+                'Distill - Database Initialization Failed',
                 `The database system failed to start.\n\n` +
                 `This usually indicates:\n` +
                 `1. Another process has the database locked\n` +
                 `2. Database files are corrupted\n` +
                 `3. Insufficient file system permissions\n\n` +
                 `To fix this:\n` +
-                `1. Close any other Nimbalyst windows\n` +
+                `1. Close any other Distill windows\n` +
                 `2. Restart your computer (clears stale locks)\n` +
                 `3. If the problem persists, delete the database folder:\n` +
                 `   ${dbPath}\n\n` +
-                `Nimbalyst will now close.`
+                `Distill will now close.`
             );
         } else {
             dialog.showErrorBox(
-                'Nimbalyst - Database Initialization Failed',
-                `Failed to initialize the database system.\n\nError: ${errorMessage}\n\nNimbalyst cannot continue without the database.`
+                'Distill - Database Initialization Failed',
+                `Failed to initialize the database system.\n\nError: ${errorMessage}\n\nDistill cannot continue without the database.`
             );
         }
 
@@ -1367,6 +1375,7 @@ app.whenReady().then(async () => {
     initializeClaudeCodeSessionHandlers();  // Initialize Claude Code session import
     registerAnalyticsHandlers();
     registerFeatureUsageHandlers();
+    registerCostHandlers();
     registerNotificationHandlers();
     registerClaudeUsageHandlers();
     claudeUsageService.initialize();
@@ -1908,6 +1917,7 @@ app.whenReady().then(async () => {
     });
     initVoiceModeService();
     initVoiceModeSettingsHandler();
+    initPhotosPermissionHandlers();
     registerWalkthroughHandlers();
 
     // Start MCP SSE server

@@ -352,7 +352,7 @@ async function installFromPackageUrl(opts: InstallFromPackageUrlOptions): Promis
       await extractNimext(tempFile, stagingPath);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      return { success: false, error: `Package is not a valid Nimbalyst extension archive: ${errMsg}` };
+      return { success: false, error: `Package is not a valid Distill extension archive: ${errMsg}` };
     }
 
     // 4. Read + validate manifest
@@ -553,7 +553,7 @@ async function installFromGitHubCloneSource(
     try {
       manifestContent = await fs.readFile(manifestPath, 'utf-8');
     } catch {
-      return { success: false, error: 'No manifest.json found in repository. Is this a Nimbalyst extension?' };
+      return { success: false, error: 'No manifest.json found in repository. Is this a Distill extension?' };
     }
 
     let manifest: ParsedManifest;

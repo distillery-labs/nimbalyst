@@ -5,7 +5,7 @@
  * Uses setTimeout chains for scheduling (not setInterval).
  */
 
-import type { AutomationStatus, ExecutionRecord } from '../frontmatter/types';
+import type { AutomationStatus, ExecutionRecord, AutomationPrecheck } from '../frontmatter/types';
 import { parseAutomationStatus, extractPromptBody, updateAutomationStatus } from '../frontmatter/parser';
 import { calculateNextRun, msUntilNextRun } from './scheduleUtils';
 
@@ -20,6 +20,39 @@ interface ExtensionUI {
   showInfo: (message: string) => void;
   showWarning: (message: string) => void;
   showError: (message: string) => void;
+}
+
+/** Subprocess runner injected from the extension's services.process. */
+export interface ProcessRunner {
+  run(options: {
+    command: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+    timeoutMs?: number;
+  }): Promise<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean }>;
+}
+
+/** Outcome of running the precheck script. */
+type PrecheckOutcome =
+  | { kind: 'escalate'; payload: string }
+  | { kind: 'skip'; reason: string }
+  | { kind: 'error'; message: string };
+
+/**
+ * Merge the precheck payload into the user's prompt body. If the body
+ * contains the `{{script_output}}` template token, the payload replaces
+ * every occurrence (so authors can place it inline). Otherwise the payload
+ * is appended under a `## Script Output` heading.
+ *
+ * Exported for unit tests.
+ */
+export function composePromptWithScriptOutput(promptBody: string, payload: string): string {
+  if (promptBody.includes('{{script_output}}')) {
+    return promptBody.split('{{script_output}}').join(payload);
+  }
+  if (!payload.trim()) return promptBody;
+  return `${promptBody.trimEnd()}\n\n## Script Output\n\n${payload}`;
 }
 
 interface ScheduledAutomation {
@@ -47,6 +80,8 @@ export class AutomationScheduler {
   private fs: ExtensionFileSystem;
   private ui: ExtensionUI;
   private onFire: OnAutomationFire | null = null;
+  private processRunner: ProcessRunner | null = null;
+  private workspacePath: string | null = null;
   private disposed = false;
 
   constructor(fs: ExtensionFileSystem, ui: ExtensionUI) {
@@ -57,6 +92,21 @@ export class AutomationScheduler {
   /** Set the callback invoked when an automation timer fires. */
   setOnFire(callback: OnAutomationFire): void {
     this.onFire = callback;
+  }
+
+  /**
+   * Inject the subprocess runner. When set, automations with a `precheck`
+   * block will run their script first and only invoke `onFire` if the
+   * script signals escalation. When unset, `precheck` blocks are ignored
+   * (the agent runs unconditionally, same as before).
+   */
+  setProcessRunner(runner: ProcessRunner): void {
+    this.processRunner = runner;
+  }
+
+  /** Optional workspace path used to set NIMBALYST_WORKSPACE in script env. */
+  setWorkspacePath(path: string | null): void {
+    this.workspacePath = path;
   }
 
   /** Discover automation files and schedule enabled ones. */
@@ -205,7 +255,21 @@ export class AutomationScheduler {
     try {
       // Read fresh content to get the latest prompt
       const content = await this.fs.readFile(filePath);
-      const prompt = extractPromptBody(content);
+      const promptBody = extractPromptBody(content);
+
+      // Run the precheck (if any) to decide whether to escalate to the agent
+      let prompt = promptBody;
+      if (status.precheck) {
+        const outcome = await this.runPrecheck(status, status.precheck);
+        if (outcome.kind === 'skip') {
+          await this.recordSkip(filePath, status, outcome.reason, Date.now() - startTime);
+          return;
+        }
+        if (outcome.kind === 'error') {
+          throw new Error(`Precheck failed: ${outcome.message}`);
+        }
+        prompt = composePromptWithScriptOutput(promptBody, outcome.payload);
+      }
 
       const result = await this.onFire(filePath, status, prompt);
       // console.log('[Automations] onFire result keys:', Object.keys(result), 'outputFile:', result.outputFile);
@@ -276,6 +340,137 @@ export class AutomationScheduler {
       }
 
       this.ui.showError(`Automation "${status.title}" failed: ${errorMsg}`);
+    }
+  }
+
+  /**
+   * Execute the precheck script and translate its exit code/stdout into a
+   * skip / escalate / error decision. Returns 'error' (not throws) on
+   * unexpected exit codes so the caller can decide whether to surface it
+   * as a normal automation error or a precheck-specific failure.
+   */
+  private async runPrecheck(
+    status: AutomationStatus,
+    precheck: AutomationPrecheck,
+  ): Promise<PrecheckOutcome> {
+    if (!this.processRunner) {
+      return {
+        kind: 'error',
+        message:
+          'No process runner available. The automations extension must declare ' +
+          '"process": true in its manifest permissions.',
+      };
+    }
+
+    const skipExitCode = precheck.skipExitCode ?? 99;
+    const timeoutMs = (precheck.timeoutSeconds ?? 30) * 1000;
+
+    let result: { exitCode: number; stdout: string; stderr: string; timedOut: boolean };
+    try {
+      result = await this.processRunner.run({
+        command: precheck.script,
+        args: precheck.args,
+        cwd: this.workspacePath ?? undefined,
+        timeoutMs,
+        env: {
+          NIMBALYST_AUTOMATION_ID: status.id,
+          NIMBALYST_WORKSPACE: this.workspacePath ?? '',
+          NIMBALYST_LAST_RUN: status.lastRun ?? '',
+        },
+      });
+    } catch (err) {
+      return {
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    if (result.timedOut) {
+      const stderrPreview = result.stderr.slice(0, 200);
+      this.ui.showError(
+        `Precheck for "${status.title}" timed out after ${precheck.timeoutSeconds ?? 30}s` +
+          (stderrPreview ? `\nstderr: ${stderrPreview}` : ''),
+      );
+      return { kind: 'error', message: `Precheck timed out after ${timeoutMs}ms` };
+    }
+
+    if (result.exitCode === 0) {
+      // Escalate. Try JSON-shaped stdout for structured control; otherwise
+      // treat the raw stdout as the payload.
+      const trimmed = result.stdout.trim();
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(trimmed) as { escalate?: boolean; payload?: string };
+          if (parsed.escalate === false) {
+            return { kind: 'skip', reason: 'script-opted-out' };
+          }
+          return { kind: 'escalate', payload: parsed.payload ?? '' };
+        } catch {
+          // fall through and use raw stdout
+        }
+      }
+      return { kind: 'escalate', payload: result.stdout };
+    }
+
+    if (result.exitCode === skipExitCode) {
+      return { kind: 'skip', reason: `exit ${skipExitCode}` };
+    }
+
+    const stderrPreview = result.stderr.slice(0, 500);
+    this.ui.showError(
+      `Precheck for "${status.title}" exited ${result.exitCode}` +
+        (stderrPreview ? `\nstderr: ${stderrPreview}` : ''),
+    );
+    return {
+      kind: 'error',
+      message: `Script exited ${result.exitCode}` + (stderrPreview ? ` — ${stderrPreview}` : ''),
+    };
+  }
+
+  /** Persist a "skipped" run to history and frontmatter. */
+  private async recordSkip(
+    filePath: string,
+    status: AutomationStatus,
+    reason: string,
+    durationMs: number,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const nextRun = calculateNextRun(status.schedule);
+
+    try {
+      const freshContent = await this.fs.readFile(filePath);
+      const updated = updateAutomationStatus(freshContent, {
+        lastRun: now,
+        lastRunStatus: 'skipped',
+        lastRunError: undefined,
+        lastSkipReason: reason,
+        nextRun: nextRun?.toISOString(),
+        skipCount: (status.skipCount ?? 0) + 1,
+      });
+      await this.fs.writeFile(filePath, updated);
+    } catch (err) {
+      console.warn('[Automations] Failed to update frontmatter on skip:', err);
+    }
+
+    await this.appendHistory(status, {
+      id: `run_${Date.now()}`,
+      timestamp: now,
+      durationMs,
+      status: 'skipped',
+      skipReason: reason,
+    });
+
+    const tracked = this.automations.get(filePath);
+    if (tracked) {
+      tracked.status = {
+        ...tracked.status,
+        lastRun: now,
+        lastRunStatus: 'skipped',
+        lastRunError: undefined,
+        lastSkipReason: reason,
+        nextRun: nextRun?.toISOString(),
+        skipCount: (status.skipCount ?? 0) + 1,
+      };
     }
   }
 

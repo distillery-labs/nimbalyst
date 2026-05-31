@@ -168,6 +168,13 @@ export interface ExtensionPermissions {
   network?: boolean;
 
   /**
+   * Can spawn subprocesses via `services.process.run`. The host runs the
+   * requested executable in the Electron main process, captures stdout/stderr,
+   * and returns the exit code. The renderer never touches `child_process`.
+   */
+  process?: boolean;
+
+  /**
    * Catalog-based capability ids. Use this for capabilities defined in the
    * host's permission catalog (see ExtensionPermissionId). Required for any
    * panel/renderer extension that wants to call host APIs gated on a catalog
@@ -714,6 +721,9 @@ export interface ExtensionServices {
   /** AI services (only available if permissions.ai is true) */
   ai?: ExtensionAIService;
 
+  /** Subprocess execution (only available if permissions.process is true) */
+  process?: ExtensionProcessService;
+
   /** Configuration service (only available if contributions.configuration is defined) */
   configuration?: ExtensionConfigurationService;
 
@@ -810,6 +820,58 @@ export interface ExtensionUIService {
 
   /** Show an error message */
   showError(message: string): void;
+}
+
+/**
+ * Options for running a subprocess via `services.process.run`.
+ *
+ * The host spawns the executable as a child process in Electron main and
+ * pipes stdout/stderr back to the extension. Paths in `command` and `cwd`
+ * are passed through verbatim — the extension is responsible for resolving
+ * relative paths against the workspace if it wants workspace-relative
+ * behavior.
+ */
+export interface ExtensionProcessRunOptions {
+  /** Executable to run (absolute path, or name resolvable via PATH). */
+  command: string;
+
+  /** Arguments to pass to the command. */
+  args?: string[];
+
+  /** Working directory. Defaults to the workspace root. */
+  cwd?: string;
+
+  /** Extra environment variables. Merged with the parent environment. */
+  env?: Record<string, string>;
+
+  /** Hard kill timeout in ms. Default 30_000. */
+  timeoutMs?: number;
+
+  /** Optional stdin to pipe to the process. */
+  stdin?: string;
+}
+
+export interface ExtensionProcessRunResult {
+  /** Process exit code. -1 if the process failed to start. */
+  exitCode: number;
+
+  /** Captured stdout (truncated to a host-defined max buffer). */
+  stdout: string;
+
+  /** Captured stderr (truncated to a host-defined max buffer). */
+  stderr: string;
+
+  /** True if the process was killed because it exceeded timeoutMs. */
+  timedOut: boolean;
+}
+
+export interface ExtensionProcessService {
+  /**
+   * Spawn a subprocess and resolve once it exits (or is killed by timeout).
+   * Never throws on a non-zero exit code — inspect `exitCode` to decide.
+   * Throws only on host-level failures (missing permission, IPC failure).
+   */
+  run(options: ExtensionProcessRunOptions): Promise<ExtensionProcessRunResult>;
 }
 
 export interface ExtensionAIService {

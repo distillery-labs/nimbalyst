@@ -1,0 +1,82 @@
+{
+  "id": "com.nimbalyst.apple-photos",
+  "name": "Apple Photos",
+  "version": "0.1.0",
+  "description": "Browse your macOS Photos library and interact with it via AI — natural-language search, auto-caption, dedupe, smart albums, story builder",
+  "author": "Nimbalyst",
+  "main": "dist/index.js",
+  "styles": "dist/index.css",
+  "apiVersion": "1.0.0",
+  "requiredReleaseChannel": "alpha",
+  "marketplace": {
+    "categories": ["data", "ai-tools"],
+    "tags": ["photos", "apple", "icloud", "ai", "search", "captions", "albums"],
+    "icon": "photo_library",
+    "tagline": "Your Photos library, with AI",
+    "longDescription": "Browse your macOS Photos library inside Nimbalyst and ask AI questions about it. Search by what's in your photos, auto-caption a batch, find duplicates, build smart albums, and turn a shoot into a written story. Uses Apple's PhotoKit framework via a signed helper so your library stays on your Mac.",
+    "highlights": [
+      "Natural-language search across your library (\"sunsets at the beach\")",
+      "Auto-caption and keyword photos in bulk",
+      "Find duplicates and cull bursts",
+      "Save AI searches as smart albums that materialize back to Photos.app",
+      "Turn a shoot into a Nimbalyst markdown story"
+    ],
+    "fileTypes": [".photoquery"],
+    "screenshots": [
+      {
+        "alt": "Photos browser panel with thumbnail grid and natural-language search",
+        "src": "screenshots/com.nimbalyst.apple-photos-0-dark.png",
+        "srcLight": "screenshots/com.nimbalyst.apple-photos-0-light.png",
+        "selector": "[data-extension-id=\"com.nimbalyst.apple-photos\"][data-panel=\"photos-browser\"]"
+      }
+    ]
+  },
+  "permissions": {
+    "filesystem": true,
+    "ai": true
+  },
+  "contributions": {
+    "panels": [
+      {
+        "id": "photos-browser",
+        "title": "Photos",
+        "icon": "photo_library",
+        "placement": "sidebar",
+        "aiSupported": true,
+        "order": 70,
+        "tooltip": "Browse your Photos library and search with AI"
+      }
+    ],
+    "customEditors": [
+      {
+        "filePatterns": ["*.photoquery"],
+        "displayName": "Smart Photo Query",
+        "component": "PhotoQueryEditor",
+        "supportsSourceMode": true,
+        "supportsDiffMode": false
+      }
+    ],
+    "settingsPanel": {
+      "component": "PhotosSettings",
+      "title": "Apple Photos",
+      "icon": "photo_library"
+    },
+    "aiTools": [
+      "apple_photos.list_recent",
+      "apple_photos.search",
+      "apple_photos.get_selection",
+      "apple_photos.list_albums"
+    ],
+    "fileIcons": {
+      "*.photoquery": "photo_library"
+    },
+    "newFileMenu": [
+      {
+        "extension": ".photoquery",
+        "displayName": "Smart Photo Query",
+        "icon": "photo_library",
+        "defaultContent": "{\n  \"version\": 1,\n  \"name\": \"New smart query\",\n  \"query\": \"\",\n  \"filters\": {\n    \"favoritesOnly\": false,\n    \"dateRange\": null,\n    \"albums\": []\n  },\n  \"materializedAlbumId\": null\n}\n"
+      }
+    ]
+  }
+}

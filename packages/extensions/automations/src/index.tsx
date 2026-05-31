@@ -43,15 +43,38 @@ export async function activate(context: {
         model?: string;
       }) => Promise<{ sessionId: string; response: string }>;
     };
+    process?: {
+      run: (options: {
+        command: string;
+        args?: string[];
+        cwd?: string;
+        env?: Record<string, string>;
+        timeoutMs?: number;
+      }) => Promise<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean }>;
+    };
   };
   subscriptions: Array<{ dispose: () => void }>;
 }): Promise<void> {
   console.log('[Automations] Extension activated');
 
-  const { filesystem, ui, ai } = context.services;
+  const { filesystem, ui, ai, process: processService } = context.services;
   const outputWriter = new OutputWriter(filesystem);
 
   scheduler = new AutomationScheduler(filesystem, ui);
+  if (processService) {
+    scheduler.setProcessRunner(processService);
+  }
+
+  // Pick up the workspace path so prechecks can resolve relative scripts.
+  try {
+    const electronAPI = (window as unknown as { electronAPI?: { getInitialState?: () => Promise<{ workspacePath?: string }> } }).electronAPI;
+    const state = await electronAPI?.getInitialState?.();
+    if (state?.workspacePath) {
+      scheduler.setWorkspacePath(state.workspacePath);
+    }
+  } catch {
+    // Non-fatal: precheck commands without an explicit cwd will inherit the host's cwd.
+  }
 
   // Wire up the execution callback
   scheduler.setOnFire(async (

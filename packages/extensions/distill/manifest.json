@@ -1,0 +1,149 @@
+{
+  "id": "com.nimbalyst.distill",
+  "name": "Distill",
+  "version": "0.1.0",
+  "description": "Capability exercise extension - surfaces the word 'Distill' in every UI hook the extension SDK exposes.",
+  "author": "Nimbalyst",
+  "main": "dist/index.js",
+  "styles": "dist/index.css",
+  "apiVersion": "1.0.0",
+  "defaultEnabled": true,
+  "marketplace": {
+    "categories": ["developer-tools"],
+    "tags": ["distill", "demo", "capabilities"],
+    "icon": "science",
+    "tagline": "Distill: every UI hook, one word.",
+    "longDescription": "Distill is a capabilities-exercise extension. It registers one minimal entry in every UI contribution surface the Nimbalyst extension SDK exposes (editors, panels, headers, themes, slash commands, AI tools, and more) so you can see at a glance where extensions can place visible content.",
+    "highlights": [
+      "Distill editor for .distill files",
+      "Distill panels in sidebar, bottom, fullscreen, and floating placements",
+      "Distill theme, document header, badge, slash command, and AI tool"
+    ],
+    "fileTypes": [".distill"]
+  },
+  "permissions": {},
+  "contributions": {
+    "customEditors": [
+      {
+        "filePatterns": ["*.distill"],
+        "displayName": "Distill Editor",
+        "component": "DistillEditor",
+        "supportsDiffMode": false,
+        "supportsSourceMode": false
+      }
+    ],
+    "fileIcons": {
+      "*.distill": "science"
+    },
+    "newFileMenu": [
+      {
+        "extension": ".distill",
+        "displayName": "Distill",
+        "icon": "science",
+        "defaultContent": "Distill\n"
+      }
+    ],
+    "commands": [
+      {
+        "id": "com.nimbalyst.distill.say-distill",
+        "title": "Distill: Say Distill"
+      }
+    ],
+    "keybindings": [
+      {
+        "key": "ctrl+shift+d",
+        "command": "com.nimbalyst.distill.distill-sidebar.toggle"
+      }
+    ],
+    "slashCommands": [
+      {
+        "id": "com.nimbalyst.distill.insert",
+        "title": "Distill",
+        "description": "Insert the word 'Distill' at the cursor",
+        "icon": "science",
+        "keywords": ["distill", "demo"],
+        "handler": "insertDistill"
+      }
+    ],
+    "panels": [
+      {
+        "id": "distill-sidebar",
+        "title": "Distill",
+        "icon": "science",
+        "placement": "sidebar",
+        "order": 200,
+        "tooltip": "Distill sidebar panel - demo only."
+      },
+      {
+        "id": "distill-bottom",
+        "title": "Distill",
+        "icon": "science",
+        "placement": "bottom",
+        "order": 200,
+        "tooltip": "Distill bottom panel - demo only."
+      },
+      {
+        "id": "distill-fullscreen",
+        "title": "Distill",
+        "icon": "science",
+        "placement": "fullscreen",
+        "order": 200,
+        "tooltip": "Distill fullscreen panel - demo only."
+      },
+      {
+        "id": "distill-floating",
+        "title": "Distill",
+        "icon": "science",
+        "placement": "floating",
+        "order": 200,
+        "tooltip": "Distill floating panel - demo only."
+      }
+    ],
+    "settingsPanel": {
+      "component": "DistillSettings",
+      "title": "Distill",
+      "icon": "science"
+    },
+    "documentHeaders": [
+      {
+        "id": "distill-header",
+        "filePatterns": ["*.distill"],
+        "displayName": "Distill",
+        "component": "DistillHeader",
+        "priority": 100
+      }
+    ],
+    "themes": [
+      {
+        "id": "distill",
+        "name": "Distill",
+        "isDark": true,
+        "colors": {
+          "bg": "#0f1115",
+          "bg-secondary": "#161a22",
+          "bg-tertiary": "#1d222d",
+          "primary": "#7dd3fc",
+          "primary-hover": "#38bdf8",
+          "text": "#e6edf3",
+          "text-muted": "#9ba8b7",
+          "border": "#2a3140"
+        }
+      }
+    ],
+    "aiTools": ["distill.echo"],
+    "hostComponents": ["DistillBadge", "TranscriptDistillHost"],
+    "lexicalExtensions": ["DistillLexicalExtension"],
+    "configuration": {
+      "title": "Distill",
+      "properties": {
+        "greeting": {
+          "type": "string",
+          "default": "Distill",
+          "description": "The word the Distill extension shows everywhere.",
+          "scope": "user",
+          "order": 1
+        }
+      }
+    }
+  }
+}

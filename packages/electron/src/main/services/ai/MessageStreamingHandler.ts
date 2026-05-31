@@ -51,6 +51,7 @@ import { historyManager } from '../../HistoryManager';
 import { addGitignoreBypass } from '../../file/WorkspaceEventBus';
 import { getSyncProvider, isDesktopTrulyAway } from '../SyncManager';
 import { getAgentWorkflowService } from '../AgentWorkflowService';
+import { costRepository } from '../cost/CostRepository';
 import {
   shouldShowCommunityPopup,
   markCommunityPopupShown,
@@ -1968,6 +1969,23 @@ export class MessageStreamingHandler {
 
               await this.svc.sessionManager.updateSessionTokenUsage(session.id, updatedUsage);
 
+              // Record per-turn cost rows: one per model that appeared in modelUsage.
+              // SDK costUSD is authoritative for claude-code -- we pass it through
+              // and stamp cost_source='sdk' on the ledger row.
+              for (const modelName of Object.keys(modelUsage)) {
+                const m = modelUsage[modelName];
+                await costRepository.recordTurn({
+                  sessionId: session.id,
+                  provider: 'claude-code',
+                  model: modelName,
+                  inputTokens: m.inputTokens ?? 0,
+                  outputTokens: m.outputTokens ?? 0,
+                  cacheReadTokens: m.cacheReadInputTokens ?? 0,
+                  cacheCreateTokens: m.cacheCreationInputTokens ?? 0,
+                  sdkCostUsd: m.costUSD,
+                });
+              }
+
               // Send IPC event to update UI immediately
               safeSend(event, 'ai:tokenUsageUpdated', {
                 sessionId: session.id,
@@ -2008,6 +2026,12 @@ export class MessageStreamingHandler {
               const isCodexProvider = session.provider === 'openai-codex';
               const codexInitData = isCodexProvider ? (provider as any).getInitData?.() : null;
               const isResumedCodexThread = codexInitData?.isResumedThread === true;
+              // Track the per-turn delta separately so we can record an
+              // accurate ai_turn_costs row. For Codex this is recomputed below
+              // from cumulative thread snapshots; for other providers the
+              // chunk usage is already per-turn so the deltas equal the new*.
+              let turnInputTokens = newInputTokens;
+              let turnOutputTokens = newOutputTokens;
 
               const codexContextWindow =
                 isCodexProvider
@@ -2055,6 +2079,8 @@ export class MessageStreamingHandler {
                 nextTotalTokens = currentUsage.totalTokens + deltaInput + deltaOutput;
                 providerCumulativeInputTokens = cumulativeInput;
                 providerCumulativeOutputTokens = cumulativeOutput;
+                turnInputTokens = deltaInput;
+                turnOutputTokens = deltaOutput;
               }
 
               const updatedUsage: NonNullable<SessionData['tokenUsage']> = {
@@ -2077,6 +2103,22 @@ export class MessageStreamingHandler {
               };
 
               await this.svc.sessionManager.updateSessionTokenUsage(session.id, updatedUsage);
+
+              // Record per-turn cost row. Non-claude-code providers don't ship
+              // a $ figure, so cost gets computed from model_pricing inside
+              // CostRepository -- unknown models persist as cost_usd NULL.
+              const turnCacheRead = (tokenUsage as any).cache_read_input_tokens ?? 0;
+              const turnCacheCreate = (tokenUsage as any).cache_creation_input_tokens ?? 0;
+              const turnModel = session.model || session.providerConfig?.model || 'unknown';
+              await costRepository.recordTurn({
+                sessionId: session.id,
+                provider: session.provider,
+                model: turnModel,
+                inputTokens: turnInputTokens,
+                outputTokens: turnOutputTokens,
+                cacheReadTokens: turnCacheRead,
+                cacheCreateTokens: turnCacheCreate,
+              });
 
               // Send IPC event to update UI immediately
               safeSend(event, 'ai:tokenUsageUpdated', {

@@ -240,7 +240,7 @@ export function createWindow(
             height,
             x,
             y,
-            title: isWorkspaceMode && workspacePath ? basename(workspacePath) : 'Nimbalyst',
+            title: isWorkspaceMode && workspacePath ? basename(workspacePath) : 'Distill',
             backgroundColor,
             webPreferences: {
                 nodeIntegration: false,

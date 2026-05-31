@@ -152,7 +152,7 @@ function TeamPricingNotice() {
     <div className="mt-2.5 flex items-start gap-1.5 text-[12px] leading-relaxed text-[var(--nim-text-faint)]">
       <MaterialSymbol icon="info" size={13} className="mt-[2px] shrink-0" />
       <span>
-        Nimbalyst Teams is <span className="text-[var(--nim-text-muted)]">free during alpha</span>. We plan to introduce a paid subscription tier for teams in the future; existing teams will get advance notice before any pricing change.
+        Distill Teams is <span className="text-[var(--nim-text-muted)]">free during alpha</span>. We plan to introduce a paid subscription tier for teams in the future; existing teams will get advance notice before any pricing change.
       </span>
     </div>
   );

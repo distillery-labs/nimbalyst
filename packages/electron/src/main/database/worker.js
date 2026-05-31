@@ -155,7 +155,7 @@ class PGLiteWorker {
             // Another instance is confirmed alive (kill(0) succeeded, OR
             // unrecognised errno). Refuse the launch unconditionally.
             const error = new Error(
-              `Database is locked by another Nimbalyst process.\n\n` +
+              `Database is locked by another Distill process.\n\n` +
               `Lock holder PID: ${lockPid}\n` +
               `Lock acquired: ${lockTimestamp}\n` +
               `Lock host: ${lockHostname}\n\n` +
@@ -176,7 +176,7 @@ class PGLiteWorker {
             // (force-unlock) and "Cancel". Per @ghinkle's review on the
             // closed PR #316.
             const error = new Error(
-              `Cannot tell whether another Nimbalyst is running.\n\n` +
+              `Cannot tell whether another Distill is running.\n\n` +
               `Lock holder PID: ${lockPid}\n` +
               `Lock acquired: ${lockTimestamp}\n` +
               `Lock host: ${lockHostname}\n\n` +
@@ -2216,6 +2216,147 @@ class PGLiteWorker {
     } catch (error) {
       console.error('[PGLite Worker] Failed to fix ai_tool_call_file_edits FK:', error);
     }
+
+    await this.createCostTrackingSchema();
+  }
+
+  async createCostTrackingSchema() {
+    // Per-model pricing. Used by non-claude-code providers to convert raw token
+    // counts into USD; claude-code reports costUSD directly from the SDK and
+    // does not need this lookup. Prices are per 1 million tokens. Rows are
+    // upserted with CONFLICT DO NOTHING so users can override seeded values
+    // without their edits being clobbered on next launch.
+    await this.db.exec(`
+      CREATE TABLE IF NOT EXISTS model_pricing (
+        provider TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        input_per_mtok NUMERIC(10, 4) NOT NULL,
+        output_per_mtok NUMERIC(10, 4) NOT NULL,
+        cache_read_per_mtok NUMERIC(10, 4),
+        cache_create_per_mtok NUMERIC(10, 4),
+        effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (provider, model_id)
+      );
+    `);
+
+    // Seed Anthropic + OpenAI prices. INSERT ... ON CONFLICT DO NOTHING so we
+    // don't overwrite user customizations on subsequent launches. To refresh
+    // a row, the user can DELETE it and restart, or edit in place.
+    await this.db.exec(`
+      INSERT INTO model_pricing (provider, model_id, input_per_mtok, output_per_mtok, cache_read_per_mtok, cache_create_per_mtok) VALUES
+        ('claude', 'claude-opus-4-8',         15.00, 75.00, 1.50, 18.75),
+        ('claude', 'claude-opus-4-7',         15.00, 75.00, 1.50, 18.75),
+        ('claude', 'claude-opus-4-6',         15.00, 75.00, 1.50, 18.75),
+        ('claude', 'claude-opus-4-5-20251101',15.00, 75.00, 1.50, 18.75),
+        ('claude', 'claude-opus-4-1-20250805',15.00, 75.00, 1.50, 18.75),
+        ('claude', 'claude-opus-4-20250514',  15.00, 75.00, 1.50, 18.75),
+        ('claude', 'claude-sonnet-4-6',        3.00, 15.00, 0.30,  3.75),
+        ('claude', 'claude-sonnet-4-5-20250929',3.00, 15.00, 0.30,  3.75),
+        ('claude', 'claude-sonnet-4-20250514', 3.00, 15.00, 0.30,  3.75),
+        ('claude', 'claude-haiku-4-5-20251001',1.00,  5.00, 0.10,  1.25),
+        ('openai', 'gpt-5',                    2.50, 10.00, 1.25, NULL),
+        ('openai', 'gpt-5-mini',               0.25,  2.00, 0.13, NULL),
+        ('openai', 'gpt-4o',                   2.50, 10.00, 1.25, NULL),
+        ('openai', 'gpt-4o-mini',              0.15,  0.60, 0.08, NULL),
+        ('openai-codex', 'gpt-5-codex',        2.50, 10.00, 1.25, NULL)
+      ON CONFLICT (provider, model_id) DO NOTHING;
+    `);
+
+    // Per-turn cost ledger. One row per assistant turn that emits usage data.
+    // message_id is nullable because not all providers expose a stable
+    // ai_agent_messages id at the moment cost is observed.
+    await this.db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_turn_costs (
+        id BIGSERIAL PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        message_id BIGINT,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        input_tokens BIGINT NOT NULL DEFAULT 0,
+        output_tokens BIGINT NOT NULL DEFAULT 0,
+        cache_read_tokens BIGINT NOT NULL DEFAULT 0,
+        cache_create_tokens BIGINT NOT NULL DEFAULT 0,
+        cost_usd NUMERIC(12, 6),
+        cost_source TEXT NOT NULL CHECK (cost_source IN ('sdk', 'computed', 'unknown')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT fk_atc_session FOREIGN KEY (session_id) REFERENCES ai_sessions(id) ON DELETE CASCADE,
+        CONSTRAINT fk_atc_message FOREIGN KEY (message_id) REFERENCES ai_agent_messages(id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ai_turn_costs_session ON ai_turn_costs(session_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_ai_turn_costs_created ON ai_turn_costs(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_ai_turn_costs_model ON ai_turn_costs(provider, model);
+    `);
+
+    // Denormalized totals on ai_sessions. Updated atomically alongside each
+    // ai_turn_costs insert. Reads (session list badges, tracker rollup view)
+    // hit only this column, never the per-turn ledger.
+    await this.db.exec(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ai_sessions' AND column_name = 'total_input_tokens') THEN
+          ALTER TABLE ai_sessions ADD COLUMN total_input_tokens BIGINT NOT NULL DEFAULT 0;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ai_sessions' AND column_name = 'total_output_tokens') THEN
+          ALTER TABLE ai_sessions ADD COLUMN total_output_tokens BIGINT NOT NULL DEFAULT 0;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ai_sessions' AND column_name = 'total_cache_read_tokens') THEN
+          ALTER TABLE ai_sessions ADD COLUMN total_cache_read_tokens BIGINT NOT NULL DEFAULT 0;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ai_sessions' AND column_name = 'total_cache_create_tokens') THEN
+          ALTER TABLE ai_sessions ADD COLUMN total_cache_create_tokens BIGINT NOT NULL DEFAULT 0;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ai_sessions' AND column_name = 'total_cost_usd') THEN
+          ALTER TABLE ai_sessions ADD COLUMN total_cost_usd NUMERIC(14, 6) NOT NULL DEFAULT 0;
+        END IF;
+      END $$;
+    `);
+
+    // One-time backfill from legacy metadata.tokenUsage. Only runs once per
+    // row: subsequent restarts skip rows where total_cost_usd is already
+    // non-zero or where the metadata.tokenUsage payload is absent.
+    await this.db.exec(`
+      UPDATE ai_sessions
+      SET
+        total_input_tokens       = COALESCE((metadata->'tokenUsage'->>'inputTokens')::BIGINT, 0),
+        total_output_tokens      = COALESCE((metadata->'tokenUsage'->>'outputTokens')::BIGINT, 0),
+        total_cost_usd           = COALESCE((metadata->'tokenUsage'->>'costUSD')::NUMERIC, 0)
+      WHERE total_cost_usd = 0
+        AND total_input_tokens = 0
+        AND total_output_tokens = 0
+        AND metadata ? 'tokenUsage'
+        AND (
+          metadata->'tokenUsage' ? 'costUSD'
+          OR metadata->'tokenUsage' ? 'inputTokens'
+          OR metadata->'tokenUsage' ? 'outputTokens'
+        );
+    `);
+
+    // Rollup view: sums denormalized session totals for every session linked
+    // to each tracker item. Uses the session-side reverse link
+    // (metadata->'linkedTrackerItemIds') which exists for both local-only and
+    // collab-synced tracker items (whereas tracker_items.data->'linkedSessions'
+    // only exists on local items).
+    await this.db.exec(`
+      CREATE OR REPLACE VIEW tracker_cost_rollup AS
+      SELECT
+        ti.id AS tracker_id,
+        COALESCE(SUM(s.total_cost_usd), 0)::NUMERIC(14, 6) AS total_cost_usd,
+        COALESCE(SUM(s.total_input_tokens), 0)::BIGINT AS total_input_tokens,
+        COALESCE(SUM(s.total_output_tokens), 0)::BIGINT AS total_output_tokens,
+        COALESCE(SUM(s.total_cache_read_tokens), 0)::BIGINT AS total_cache_read_tokens,
+        COALESCE(SUM(s.total_cache_create_tokens), 0)::BIGINT AS total_cache_create_tokens,
+        COUNT(s.id)::INTEGER AS linked_session_count
+      FROM tracker_items ti
+      LEFT JOIN ai_sessions s
+        ON s.metadata IS NOT NULL
+        AND s.metadata->'linkedTrackerItemIds' IS NOT NULL
+        AND s.metadata->'linkedTrackerItemIds' ? ti.id
+      GROUP BY ti.id;
+    `);
+
+    console.log('[PGLite Worker] cost tracking schema ready');
   }
 
   async query(message) {

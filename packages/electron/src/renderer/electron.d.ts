@@ -29,6 +29,59 @@ interface ArchiveTask {
   error?: string;
 }
 
+interface SessionCost {
+  sessionId: string;
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreateTokens: number;
+}
+
+interface TurnCostRow {
+  id: number;
+  sessionId: string;
+  messageId: number | null;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreateTokens: number;
+  costUsd: number | null;
+  costSource: 'sdk' | 'computed' | 'unknown';
+  createdAt: number;
+}
+
+interface TrackerCostRollup {
+  trackerId: string;
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreateTokens: number;
+  linkedSessionCount: number;
+}
+
+interface WorkspaceCostSummary {
+  workspaceId: string;
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreateTokens: number;
+  sessionCount: number;
+}
+
+interface ModelPricing {
+  provider: string;
+  modelId: string;
+  inputPerMTok: number;
+  outputPerMTok: number;
+  cacheReadPerMTok: number | null;
+  cacheCreatePerMTok: number | null;
+}
+
 interface ElectronAPI {
   // File menu callbacks
   onFileNew: (callback: () => void) => () => void;
@@ -417,6 +470,16 @@ interface ElectronAPI {
     get: (feature: string) => Promise<{ count: number; firstUsed: string; lastUsed: string } | undefined>;
     getCount: (feature: string) => Promise<number>;
     getAll: () => Promise<Record<string, { count: number; firstUsed: string; lastUsed: string }>>;
+  };
+
+  // Cost tracking (per-session and tracker-rollup USD/token totals)
+  cost: {
+    getSessionCost: (sessionId: string) => Promise<SessionCost | null>;
+    getSessionTurns: (sessionId: string, limit?: number) => Promise<TurnCostRow[]>;
+    getTrackerRollup: (trackerId: string) => Promise<TrackerCostRollup | null>;
+    getTrackerRollups: (trackerIds: string[]) => Promise<Record<string, TrackerCostRollup>>;
+    getWorkspaceSummary: (workspaceId: string) => Promise<WorkspaceCostSummary>;
+    listPricing: () => Promise<ModelPricing[]>;
   };
 
   // Credentials (for E2E encryption key management)

@@ -74,12 +74,6 @@ export function initVoiceModeSettingsHandler() {
 
   /**
    * Read the current OS-level microphone access status without prompting.
-   *
-   * Why: the audio-input entitlement is intentionally omitted so background
-   * agent processes never trigger a system mic prompt. That means the renderer
-   * can't rely on getUserMedia to surface "denied" cleanly -- we need to
-   * inspect the OS state directly and offer the user a deep link to System
-   * Settings when access isn't granted.
    */
   safeHandle('voice-mode:get-mic-status', async () => {
     const platform = process.platform;

@@ -1237,6 +1237,110 @@ export function registerExtensionHandlers(): void {
     }
   });
 
+  // Spawn a subprocess on behalf of an extension that declared `permissions.process`.
+  // Unlike `extension:exec` (which uses child_process.exec and a shell), this uses
+  // spawn with an argv array — safer for paths with spaces and avoids shell injection.
+  safeHandle('extension:process:run', async (_event, params: {
+    extensionId: string;
+    command: string;
+    args?: string[];
+    cwd?: string;
+    timeoutMs?: number;
+    env?: Record<string, string>;
+    stdin?: string;
+  }): Promise<{
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    timedOut: boolean;
+  }> => {
+    const { extensionId, command, args = [], cwd, env, stdin } = params;
+    const timeoutMs = params.timeoutMs ?? 30_000;
+    const MAX_BUFFER = 10 * 1024 * 1024; // 10 MiB per stream
+
+    const manifest = await readExtensionManifest(extensionId);
+    if (!manifest?.permissions?.process) {
+      throw new Error(
+        `Extension ${extensionId} cannot spawn processes: manifest is missing "permissions.process": true`,
+      );
+    }
+
+    const { spawn } = await import('child_process');
+
+    return new Promise((resolve) => {
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(command, args, {
+          cwd,
+          env: env ? { ...process.env, ...env } : process.env,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+      } catch (err) {
+        resolve({
+          exitCode: -1,
+          stdout: '',
+          stderr: err instanceof Error ? err.message : String(err),
+          timedOut: false,
+        });
+        return;
+      }
+
+      let stdout = '';
+      let stderr = '';
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      }, timeoutMs);
+
+      child.stdout?.on('data', (chunk: Buffer) => {
+        if (stdoutBytes < MAX_BUFFER) {
+          const remaining = MAX_BUFFER - stdoutBytes;
+          const slice = chunk.length > remaining ? chunk.slice(0, remaining) : chunk;
+          stdout += slice.toString('utf8');
+          stdoutBytes += slice.length;
+        }
+      });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        if (stderrBytes < MAX_BUFFER) {
+          const remaining = MAX_BUFFER - stderrBytes;
+          const slice = chunk.length > remaining ? chunk.slice(0, remaining) : chunk;
+          stderr += slice.toString('utf8');
+          stderrBytes += slice.length;
+        }
+      });
+
+      child.on('error', (err: Error) => {
+        clearTimeout(timer);
+        resolve({
+          exitCode: -1,
+          stdout,
+          stderr: stderr || err.message,
+          timedOut,
+        });
+      });
+
+      child.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
+        clearTimeout(timer);
+        resolve({
+          exitCode: code ?? (signal ? -1 : 0),
+          stdout,
+          stderr,
+          timedOut,
+        });
+      });
+
+      if (stdin !== undefined && child.stdin) {
+        child.stdin.end(stdin);
+      } else {
+        child.stdin?.end();
+      }
+    });
+  });
+
   // ============================================================================
   // Extension File Storage (sandboxed file system for extensions)
   // ============================================================================
@@ -1403,6 +1507,7 @@ interface ManifestForGating {
     filesystem?: boolean;
     ai?: boolean;
     network?: boolean;
+    process?: boolean;
     catalog?: string[];
   };
 }

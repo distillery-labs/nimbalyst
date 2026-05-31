@@ -1,13 +1,15 @@
 {
-  "generatedAt": "2026-05-20T00:37:39.177Z",
+  "generatedAt": "2026-05-31T19:24:33.575Z",
   "scope": {
     "workspaceRoots": [
       "packages/electron",
       "packages/runtime",
+      "packages/extensions/apple-photos",
       "packages/extensions/automations",
       "packages/extensions/csv-spreadsheet",
       "packages/extensions/datamodellm",
       "packages/extensions/developer",
+      "packages/extensions/distill",
       "packages/extensions/error-test",
       "packages/extensions/example-theme",
       "packages/extensions/excalidraw",
@@ -12372,9 +12374,9 @@
       "noticeFiles": []
     },
     {
-      "id": "katex@0.16.45",
+      "id": "katex@0.16.47",
       "name": "katex",
-      "version": "0.16.45",
+      "version": "0.16.47",
       "rawLicense": "MIT",
       "selectedLicense": "MIT",
       "reviewRequired": false,
@@ -12384,13 +12386,13 @@
       "approvalLicense": null,
       "issues": [],
       "installPaths": [
-        "packages/runtime/node_modules/katex"
+        "packages/extensions/math/node_modules/katex"
       ],
-      "resolved": "https://registry.npmjs.org/katex/-/katex-0.16.45.tgz",
+      "resolved": "https://registry.npmjs.org/katex/-/katex-0.16.47.tgz",
       "licenseFiles": [
         {
           "fileName": "LICENSE",
-          "relativePath": "packages/runtime/node_modules/katex/LICENSE",
+          "relativePath": "packages/extensions/math/node_modules/katex/LICENSE",
           "text": "The MIT License (MIT)\n\nCopyright (c) 2013-2020 Khan Academy and other contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
         }
       ],

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "name": "Sunsets",
+  "query": "sunset",
+  "filters": {
+    "favoritesOnly": false,
+    "dateRange": null,
+    "albums": []
+  },
+  "materializedAlbumId": null
+}

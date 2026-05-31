@@ -3,6 +3,7 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { MaterialSymbol, ProviderIcon } from '@nimbalyst/runtime';
 import { getRelativeTimeString } from '../../utils/dateFormatting';
 import { sessionOrChildProcessingAtom, sessionUnreadAtom, sessionPendingPromptAtom, sessionHasPendingInteractivePromptAtom, reparentSessionAtom, refreshSessionListAtom, sessionShareAtom, sessionWakeupAtom } from '../../store';
+import { sessionTokenUsageAtom } from '../../store/atoms/sessions';
 import { convertToWorkstreamAtom } from '../../store/atoms/sessions';
 import { SessionContextMenu } from './SessionContextMenu';
 
@@ -71,6 +72,30 @@ const SessionStatusIndicator = memo<{ sessionId: string; messageCount?: number }
   // }
 
   return null;
+});
+
+/**
+ * SessionCostBadge — small running-cost pill that subscribes to its own session's
+ * tokenUsage atom so changes don't re-render the whole list item.
+ *
+ * Hidden when no cost has been observed yet (avoids "$0" noise on every dormant
+ * session). Cost comes from the live `ai:tokenUsageUpdated` IPC for active
+ * sessions; for cold sessions loaded into the atom from the session store, it
+ * reflects whatever was persisted to metadata.tokenUsage.costUSD at last write.
+ */
+const SessionCostBadge = memo<{ sessionId: string }>(({ sessionId }) => {
+  const tokenUsage = useAtomValue(sessionTokenUsageAtom(sessionId));
+  const costUsd = tokenUsage?.costUSD;
+  if (costUsd === undefined || costUsd === null || costUsd <= 0) return null;
+  const text = costUsd < 0.01 ? '<$0.01' : costUsd < 100 ? `$${costUsd.toFixed(2)}` : `$${Math.round(costUsd)}`;
+  return (
+    <span
+      className="session-list-item-cost text-[0.6875rem] text-[var(--nim-text-faint)] whitespace-nowrap tabular-nums"
+      title={`Session cost: ${text}`}
+    >
+      {text}
+    </span>
+  );
 });
 
 const PHASE_STYLES: Record<string, { label: string; color: string; bg: string }> = {
@@ -508,6 +533,7 @@ export const SessionListItem = memo<SessionListItemProps>(({
             <div className="session-list-item-meta flex gap-1.5 text-[0.6875rem] text-[var(--nim-text-faint)] items-center mt-0.5">
               <span className="session-list-item-datetime text-[0.6875rem] text-[var(--nim-text-faint)] whitespace-nowrap transition-colors duration-150" title={fullDateTime}>{relativeTime}</span>
               {displayModel && <span className="session-list-item-model overflow-hidden text-ellipsis whitespace-nowrap">{displayModel}</span>}
+              <SessionCostBadge sessionId={id} />
               {phase && <SessionPhaseBadge phase={phase} />}
             </div>
           </>

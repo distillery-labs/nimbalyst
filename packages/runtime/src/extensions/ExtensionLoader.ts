@@ -895,6 +895,27 @@ function createExtensionContext(
     };
   }
 
+  // Add process service if extension has process permission
+  if (manifest.permissions?.process) {
+    services.process = {
+      run: async (options) => {
+        const electronAPI = (window as any).electronAPI;
+        if (!electronAPI) {
+          throw new Error('electronAPI not available for process.run');
+        }
+        return electronAPI.invoke('extension:process:run', {
+          extensionId: manifest.id,
+          command: options.command,
+          args: options.args,
+          cwd: options.cwd,
+          env: options.env,
+          timeoutMs: options.timeoutMs,
+          stdin: options.stdin,
+        });
+      },
+    };
+  }
+
   // Add configuration service if extension has configuration contribution
   if (manifest.contributions?.configuration && configurationServiceProvider) {
     // Cache for synchronous access
