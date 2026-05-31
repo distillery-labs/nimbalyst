@@ -74,6 +74,8 @@
     "packages/core",
     "packages/collab-protocol",
     "packages/collab-adapters",
+    "packages/daemon-core",
+    "packages/runtime-client",
     "packages/ios",
     "packages/extension-sdk",
     "packages/extensions/*",

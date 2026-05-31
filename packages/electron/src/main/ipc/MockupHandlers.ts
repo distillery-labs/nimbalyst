@@ -10,6 +10,7 @@ import { BrowserWindow } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { OffscreenEditorManager } from '../services/OffscreenEditorManager';
+import { getLocalFiles } from '../runtime/LocalRuntime';
 import { logger } from '../utils/logger';
 import { safeHandle, safeOn } from '../utils/ipcRegistry';
 import { getWindowId, windowStates } from '../window/WindowManager';
@@ -83,8 +84,13 @@ export function registerMockupHandlers(): void {
   // Get file modification time
   safeHandle('file:get-modified-time', async (_event, filePath: string) => {
     try {
-      const stats = await fs.stat(filePath);
-      return stats.mtimeMs;
+      const stat = await getLocalFiles().statAbsolute(filePath);
+      if (!stat.exists) {
+        throw Object.assign(new Error(`ENOENT: no such file, stat '${filePath}'`), {
+          code: 'ENOENT',
+        });
+      }
+      return stat.mtimeMs;
     } catch (error) {
       logger.main.error(`[MockupHandlers] Failed to get file modified time for ${filePath}:`, error);
       throw error;
@@ -93,12 +99,7 @@ export function registerMockupHandlers(): void {
 
   // Check if file exists
   safeHandle('file:exists', async (_event, filePath: string) => {
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false;
-    }
+    return getLocalFiles().existsAbsolute(filePath);
   });
 
   // List all mockup files in the workspace
