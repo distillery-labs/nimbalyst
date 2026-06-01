@@ -252,6 +252,19 @@ describe('LocalFilesCapability', () => {
       });
       expect(hits.every((h) => h.relPath.endsWith('.md'))).toBe(true);
     });
+
+    it('populates matchByteStart and matchByteEnd from ripgrep submatches', async () => {
+      const hits = await files.search(workspace, { pattern: 'world' });
+      const onTs = hits.find((h) => h.relPath.endsWith('one.ts'));
+      expect(onTs).toBeDefined();
+      // 'hello world' — 'world' starts at byte 6, ends at byte 11 (exclusive)
+      expect(onTs!.matchByteStart).toBe(6);
+      expect(onTs!.matchByteEnd).toBe(11);
+      // And the preview slice between those offsets is exactly the match
+      expect(
+        onTs!.preview.slice(onTs!.matchByteStart!, onTs!.matchByteEnd!),
+      ).toBe('world');
+    });
   });
 
   describe('quickOpen (ripgrep --files + fuzzy)', () => {

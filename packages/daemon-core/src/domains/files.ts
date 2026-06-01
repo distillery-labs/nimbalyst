@@ -40,9 +40,20 @@ export interface SearchQuery {
 
 export interface SearchHit {
   relPath: string;
+  /** 1-indexed line number, conventional for editors. */
   line: number;
+  /** 1-indexed column of the first matched character. */
   column: number;
+  /** The matching line, trailing newline stripped. */
   preview: string;
+  /**
+   * 0-indexed byte offset of the match's start within `preview`. Carried
+   * straight from ripgrep's `submatches[0].start`. Renderers can use this
+   * to highlight the exact matched range without re-running the regex.
+   */
+  matchByteStart?: number;
+  /** 0-indexed exclusive end byte offset within `preview`. */
+  matchByteEnd?: number;
 }
 
 export interface QuickOpenHit {

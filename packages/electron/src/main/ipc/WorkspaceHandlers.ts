@@ -19,7 +19,6 @@ const execFileAsync = promisify(execFile);
 import { windowStates, getWindowId, createWindow, markRecentlyDeleted, clearRecentlyDeleted } from '../window/WindowManager';
 import { startFileWatcher, stopFileWatcher } from '../file/FileWatcher';
 import { getFolderContents } from '../utils/FileTree';
-import { RIPGREP_EXCLUDE_ARGS_ARRAY, QUICKOPEN_FILE_TYPE_ARGS } from '../utils/fileFilters';
 import {
     getWorkspaceRecentFiles,
     addWorkspaceRecentFile,
@@ -106,63 +105,57 @@ const BINARY_EXTENSIONS = new Set([
 
 const NIMBALYST_LOCAL_DIRNAME = 'nimbalyst-local';
 
-// Get the ripgrep binary path for the current platform.
-// Resolves the rg bundled by the @vscode/ripgrep package at
-// node_modules/@vscode/ripgrep/bin/rg(.exe).
-//
-// Still used by the two inline content-search handlers (search-workspace-file-content
-// and the legacy search-workspace-files) further down. Those will move to
-// `LocalFilesCapability.search` in a follow-up chunk; until then this stays.
-function getRipgrepPath(): string {
-    const platform = os.platform();
-    const rgBinaryName = platform === 'win32' ? 'rg.exe' : 'rg';
-    const isPackaged = app.isPackaged;
+// Shape the renderer expects from content-search handlers: one entry per
+// matching file, with all its matched lines grouped underneath.
+interface ContentMatchEntry {
+    path: string;
+    isContentMatch: true;
+    matches: Array<{
+        line: number;
+        text: string;
+        start: number;
+        end: number;
+    }>;
+}
 
-    // Use a variable to avoid Vite trying to resolve 'node_modules' as an identifier
-    const NODE_MODULES_DIR = ['node', '_', 'modules'].join('');
-    const rgRelPath = path.join(NODE_MODULES_DIR, '@vscode', 'ripgrep', 'bin', rgBinaryName);
+/**
+ * Run a content search through daemon-core and group results by file.
+ * Returns absolute file paths (the renderer's existing contract).
+ *
+ * Replaces the previous in-handler `rg --json` spawn + ad-hoc JSON parsing.
+ */
+async function searchContentByFile(
+    workspacePath: string,
+    query: string,
+    globs?: string[],
+): Promise<ContentMatchEntry[]> {
+    const hits = await getLocalFiles().search(workspacePath, {
+        pattern: query,
+        caseSensitive: false,
+        ...(globs ? { globs } : {}),
+    });
 
-    const possibleRgPaths: string[] = [];
-
-    if (isPackaged) {
-        const resourcesPath = process.resourcesPath;
-        possibleRgPaths.push(path.join(resourcesPath, 'app.asar.unpacked', rgRelPath));
-    } else {
-        possibleRgPaths.push(
-            path.join(__dirname, '..', '..', rgRelPath),
-            path.join(process.cwd(), rgRelPath),
-        );
-        // In monorepos, node_modules may be hoisted to the repo root.
-        // Walk up from cwd to find it.
-        let searchDir = process.cwd();
-        for (let i = 0; i < 5; i++) {
-            const parent = path.dirname(searchDir);
-            if (parent === searchDir) break; // reached filesystem root
-            possibleRgPaths.push(path.join(parent, rgRelPath));
-            searchDir = parent;
+    const byFile = new Map<string, ContentMatchEntry>();
+    for (const hit of hits) {
+        const absPath = path.normalize(path.resolve(workspacePath, hit.relPath));
+        let entry = byFile.get(absPath);
+        if (!entry) {
+            entry = { path: absPath, isContentMatch: true, matches: [] };
+            byFile.set(absPath, entry);
         }
+        const trimmed = hit.preview.trim();
+        entry.matches.push({
+            line: hit.line,
+            text: trimmed,
+            // Preserve the existing renderer contract: start/end are
+            // 0-indexed byte offsets within the (un-trimmed) preview.
+            // Fall back to whole-line bounds if ripgrep didn't return a
+            // submatch (happens for `--invert-match`-style queries).
+            start: hit.matchByteStart ?? 0,
+            end: hit.matchByteEnd ?? hit.preview.length,
+        });
     }
-
-    for (const testPath of possibleRgPaths) {
-        if (existsSync(testPath)) {
-            // Make sure the binary is executable in production (non-Windows)
-            if (isPackaged && platform !== 'win32') {
-                try {
-                    fs.chmodSync(testPath, 0o755);
-                } catch (e) {
-                    console.warn('[SEARCH] Could not set executable permission on ripgrep:', e);
-                }
-            }
-            console.log('[SEARCH] Found ripgrep at:', testPath);
-            return testPath;
-        } else {
-            console.log('[SEARCH] ripgrep not found at:', testPath);
-        }
-    }
-
-    // Fall back to system rg
-    console.warn('[SEARCH] Could not find bundled ripgrep, falling back to system rg');
-    return 'rg';
+    return Array.from(byFile.values());
 }
 
 // Cross-platform file finder using ripgrep --files (via daemon-core).
@@ -450,60 +443,8 @@ export function registerWorkspaceHandlers() {
         try {
             const trimmedQuery = query.trim();
             if (!trimmedQuery) return [];
-
-            const rgPath = getRipgrepPath();
-            const rgArgs = [
-                ...QUICKOPEN_FILE_TYPE_ARGS,
-                '-i',
-                '--json',
-                ...RIPGREP_EXCLUDE_ARGS_ARRAY,
-                trimmedQuery,
-                workspacePath
-            ];
-
-            let stdout = '';
-            try {
-                const result = await execFileAsync(rgPath, rgArgs, { maxBuffer: 5 * 1024 * 1024 });
-                stdout = result.stdout;
-            } catch (execError: any) {
-                // ripgrep returns exit code 1 when no matches found, which is not an error
-                if (execError.code === 1) {
-                    stdout = execError.stdout || '';
-                } else {
-                    throw execError;
-                }
-            }
-
-            const contentMatches = new Map<string, any>();
-            if (stdout) {
-                const lines = stdout.split('\n').filter(line => line.trim());
-                for (const line of lines) {
-                    try {
-                        const item = JSON.parse(line);
-                        if (item.type === 'match') {
-                            const filePath = item.data.path.text;
-                            if (!contentMatches.has(filePath)) {
-                                contentMatches.set(filePath, {
-                                    path: path.normalize(filePath),
-                                    isContentMatch: true,
-                                    matches: []
-                                });
-                            }
-
-                            contentMatches.get(filePath).matches.push({
-                                line: item.data.line_number,
-                                text: item.data.lines.text.trim(),
-                                start: item.data.submatches[0]?.start || 0,
-                                end: item.data.submatches[0]?.end || item.data.lines.text.length
-                            });
-                        }
-                    } catch (e) {
-                        // Skip invalid JSON lines
-                    }
-                }
-            }
-
-            return Array.from(contentMatches.values()).slice(0, 50);
+            const grouped = await searchContentByFile(workspacePath, trimmedQuery);
+            return grouped.slice(0, 50);
         } catch (error) {
             console.error('Error searching file content:', error);
             return [];
@@ -537,73 +478,26 @@ export function registerWorkspaceHandlers() {
                 // Ignore file name search errors
             }
 
-            // Then search content using ripgrep
+            // Then search content using daemon-core. The original handler
+            // used `--type md` to restrict to markdown variants; replicate
+            // that via globs.
             try {
-                const rgPath = getRipgrepPath();
-                const rgArgs = [
-                    '--type', 'md',
-                    '-i',
-                    '--json',
-                    ...RIPGREP_EXCLUDE_ARGS_ARRAY,
+                const grouped = await searchContentByFile(
+                    workspacePath,
                     trimmedQuery,
-                    workspacePath
-                ];
-
-                let stdout = '';
-                try {
-                    const result = await execFileAsync(rgPath, rgArgs, { maxBuffer: 5 * 1024 * 1024 });
-                    stdout = result.stdout;
-                } catch (execError: any) {
-                    // ripgrep returns exit code 1 when no matches found, which is not an error
-                    if (execError.code === 1) {
-                        stdout = execError.stdout || '';
+                    ['*.md', '*.markdown', '*.mdwn', '*.mkd'],
+                );
+                for (const data of grouped) {
+                    const existing = allResults.find(r => r.path === data.path);
+                    if (existing) {
+                        existing.matches = data.matches;
+                        existing.isContentMatch = true;
                     } else {
-                        throw execError;
-                    }
-                }
-
-                if (stdout) {
-                    const lines = stdout.split('\n').filter(line => line.trim());
-                    const contentMatches = new Map<string, any>();
-
-                    for (const line of lines) {
-                        try {
-                            const item = JSON.parse(line);
-                            if (item.type === 'match') {
-                                const filePath = path.normalize(item.data.path.text);
-                                if (!contentMatches.has(filePath)) {
-                                    contentMatches.set(filePath, {
-                                        path: filePath,
-                                        isContentMatch: true,
-                                        matches: []
-                                    });
-                                }
-
-                                contentMatches.get(filePath).matches.push({
-                                    line: item.data.line_number,
-                                    text: item.data.lines.text.trim(),
-                                    start: item.data.submatches[0]?.start || 0,
-                                    end: item.data.submatches[0]?.end || item.data.lines.text.length
-                                });
-                            }
-                        } catch (e) {
-                            // Skip invalid JSON lines
-                        }
-                    }
-
-                    // Merge content matches with existing results
-                    for (const [filePath, data] of contentMatches) {
-                        const existing = allResults.find(r => r.path === filePath);
-                        if (existing) {
-                            existing.matches = data.matches;
-                            existing.isContentMatch = true;
-                        } else {
-                            allResults.push(data);
-                        }
+                        allResults.push(data);
                     }
                 }
             } catch (error: any) {
-                console.error('Error executing ripgrep:', error);
+                console.error('Error executing search:', error);
                 console.error('[SEARCH] Error details:', error.message, error.code);
             }
 

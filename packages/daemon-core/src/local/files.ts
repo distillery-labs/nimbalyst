@@ -221,12 +221,18 @@ export class LocalFilesCapability implements FilesCapability {
         const absPath = parsed.data.path.text;
         const relPath = path.relative(root, absPath);
         const match = parsed.data.submatches?.[0];
-        hits.push({
+        const preview = parsed.data.lines.text.replace(/\r?\n$/, '');
+        const hit: SearchHit = {
           relPath,
           line: parsed.data.line_number,
           column: match ? match.start + 1 : 1,
-          preview: parsed.data.lines.text.replace(/\r?\n$/, ''),
-        });
+          preview,
+        };
+        if (match) {
+          hit.matchByteStart = match.start;
+          hit.matchByteEnd = match.end;
+        }
+        hits.push(hit);
       } catch {
         // ignore unparseable line
       }
