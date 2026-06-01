@@ -59,6 +59,20 @@ For any bug whose verification requires a `/restart` or a user manually exercisi
 
 Past incident: the 2026-05-20 tracker-body workstream announced "fixed" at least four times before the user finally said "you're killing me." Each announcement was based on "the code path looks right" or "tests pass," neither of which is the same as "the user can open the tracker and see the body."
 
+### UI Changes Require E2E Coverage
+
+**Any change that touches the renderer (new component, new IPC channel surfaced to the renderer, modified panel, new dialog, new menu item, new keyboard shortcut, modified existing UI behavior) must ship with at least one Playwright E2E spec exercising the user-visible flow.** Unit tests on the underlying service are not a substitute — they don't catch a category route that filters out the new screen, a missing prop on the parent, or an event listener that never fires.
+
+The spec must:
+- Live under `packages/electron/e2e/<area>/<name>.spec.ts`.
+- Drive the change through real user-visible affordances (clicks, fills, expectations on rendered DOM) — `page.evaluate` is acceptable for test-only seeding, but the assertion must be on rendered UI.
+- Be runnable in isolation (`beforeEach` reset; no implicit ordering between tests).
+- Pass before the PR is opened.
+
+Patterns and helpers: [E2E_TESTING.md](./docs/E2E_TESTING.md). Use `e2e-runner` (or `/e2e-devcontainer` in a worktree) to execute. For exemptions (pure refactor that demonstrably can't change behavior, dev-only / developerMode-gated surface), call it out explicitly in the PR description.
+
+**Before merging to main, all E2E specs the PR touches or could plausibly affect must be green.** Running the full suite is encouraged for any non-trivial PR. The CI gate is being introduced incrementally (smoke + core tier first); the rule above stands even when CI hasn't enforced it yet.
+
 ## Codebase Overview
 
 Nimbalyst is an extensible, AI-native workspace that supports multiple editor types through a unified extension system. While it originated as a Lexical-based markdown editor, the architecture is evolving toward a fully pluggable model where **all editors** — Lexical, Monaco, spreadsheets, diagrams, custom visual editors — are provided through extensions.
