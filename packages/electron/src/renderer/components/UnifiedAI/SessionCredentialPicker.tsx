@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { MaterialSymbol } from '@nimbalyst/runtime';
 import {
   CREDENTIAL_PROFILE_IPC,
   type CredentialProfile,
 } from '../../../shared/credentialProfiles';
+import { sessionRegistryAtom } from '../../store/atoms/sessions';
 
 interface SessionCredentialPickerProps {
   sessionId: string;
@@ -19,36 +21,42 @@ interface SessionCredentialPickerProps {
  *
  * Writes `metadata.credentialProfileId` on the session via
  * `sessions:update-session-metadata`. The streaming handler picks this up on
- * the next turn via `resolveCredential`.
+ * the next turn via `resolveCredential`. Initial value is read from the
+ * in-renderer sessionRegistry (which projects metadata.credentialProfileId
+ * off the JSONB column in PGLiteSessionStore.list()).
  */
 export const SessionCredentialPicker: React.FC<SessionCredentialPickerProps> = ({
   sessionId,
   provider,
 }) => {
+  const sessionRegistry = useAtomValue(sessionRegistryAtom);
   const [profiles, setProfiles] = useState<CredentialProfile[]>([]);
   const [currentProfileId, setCurrentProfileId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
-  const load = useCallback(async () => {
+  // Seed initial value from the session registry. The registry is populated
+  // from PGLiteSessionStore.list(), which projects metadata.credentialProfileId
+  // onto the SessionMeta object (extracted from the JSONB column).
+  useEffect(() => {
+    const meta = sessionRegistry.get(sessionId) as { credentialProfileId?: string } | undefined;
+    setCurrentProfileId(meta?.credentialProfileId ?? null);
+  }, [sessionId, sessionRegistry]);
+
+  const loadProfiles = useCallback(async () => {
     try {
-      const [list, sessionResult] = await Promise.all([
-        window.electronAPI.invoke(CREDENTIAL_PROFILE_IPC.list) as Promise<CredentialProfile[]>,
-        window.electronAPI.invoke('session:load', sessionId) as Promise<{ session?: { metadata?: Record<string, unknown> } } | null>,
-      ]);
+      const list = (await window.electronAPI.invoke(CREDENTIAL_PROFILE_IPC.list)) as CredentialProfile[];
       setProfiles(Array.isArray(list) ? list : []);
-      const meta = sessionResult?.session?.metadata as Record<string, unknown> | undefined;
-      const id = meta && typeof meta.credentialProfileId === 'string' ? meta.credentialProfileId : null;
-      setCurrentProfileId(id);
     } catch (err) {
-      console.error('[SessionCredentialPicker] load failed:', err);
+      console.error('[SessionCredentialPicker] failed to load profiles:', err);
     } finally {
       setLoaded(true);
     }
-  }, [sessionId]);
+  }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadProfiles(); }, [loadProfiles]);
 
-  // React to external session updates (e.g. another window changed the metadata).
+  // React to external session metadata updates so the pill stays in sync when
+  // another window changes the credential.
   useEffect(() => {
     const handler = (_event: unknown, updatedSessionId: string, metadataFields: Record<string, unknown>) => {
       if (updatedSessionId !== sessionId) return;
@@ -83,17 +91,15 @@ export const SessionCredentialPicker: React.FC<SessionCredentialPickerProps> = (
       });
     } catch (err) {
       console.error('[SessionCredentialPicker] save failed:', err);
-      // Revert on failure
       setCurrentProfileId(prev);
     }
   };
 
   if (!loaded) return null;
 
-  // Hide entirely if no profiles exist for this provider AND no override is set.
-  // No control to render — user has nothing to pick. The Settings panel is
-  // where they'd create one. (Showing a useless control adds clutter without
-  // value.)
+  // Hide entirely when there's no profile to pick AND no override to display.
+  // Showing an empty control adds clutter; the Credential Profiles panel is
+  // where users create profiles in the first place.
   if (providerProfiles.length === 0 && !currentProfile) return null;
 
   const isOverridden = !!currentProfile;

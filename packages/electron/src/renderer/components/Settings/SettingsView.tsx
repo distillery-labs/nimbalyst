@@ -149,7 +149,7 @@ export function SettingsView({
 
   // Valid categories for each scope
   const projectCategories: SettingsCategory[] = ['agent-permissions', 'team', 'tracker-config', 'installed-extensions', 'claude-plugins', 'mcp-servers', 'claude-code', 'claude', 'openai', 'openai-codex', 'opencode', 'copilot-cli', 'lmstudio'];
-  const userCategories: SettingsCategory[] = ['claude-code', 'claude', 'openai', 'openai-codex', 'opencode', 'copilot-cli', 'lmstudio', 'sync', 'notifications', 'voice-mode', 'agent-features', 'advanced', 'marketplace', 'installed-extensions', 'claude-plugins', 'mcp-servers'];
+  const userCategories: SettingsCategory[] = ['claude-code', 'claude', 'openai', 'openai-codex', 'opencode', 'copilot-cli', 'lmstudio', 'sync', 'notifications', 'voice-mode', 'agent-features', 'advanced', 'marketplace', 'installed-extensions', 'claude-plugins', 'mcp-servers', 'credential-profiles'];
 
   // When initialCategory/initialScope props change, update state (for deep linking)
   useEffect(() => {
