@@ -1,14 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 
 // Mock all dependencies before imports
-vi.mock('child_process');
-vi.mock('util', () => {
-  const mockExecAsync = vi.fn();
-  return {
-    promisify: vi.fn(() => mockExecAsync),
-    __mockExecAsync: mockExecAsync // Export for test access
-  };
-});
 vi.mock('fs/promises');
 vi.mock('glob');
 vi.mock('../utils/logger', () => ({
@@ -19,21 +11,27 @@ vi.mock('../utils/logger', () => ({
     },
   },
 }));
+vi.mock('../../runtime/LocalRuntime', () => {
+  const mockSearch = vi.fn();
+  return {
+    getLocalFiles: vi.fn(() => ({ search: mockSearch })),
+    __mockSearch: mockSearch,
+  };
+});
 
 // Import modules after mocks
 import { ElectronFileSystemService } from '../ElectronFileSystemService';
-import * as util from 'util';
 import * as fs from 'fs/promises';
 import { glob } from 'glob';
+import * as localRuntime from '../../runtime/LocalRuntime';
 
 describe('ElectronFileSystemService', () => {
   let service: ElectronFileSystemService;
   const testWorkspacePath = '/test/workspace';
-  let mockExecAsync: Mock;
+  let mockSearch: Mock;
 
   beforeEach(() => {
-    // Get mock exec function from util mock
-    mockExecAsync = (util as any).__mockExecAsync;
+    mockSearch = (localRuntime as any).__mockSearch;
 
     // Clear mocks before creating service
     vi.clearAllMocks();
@@ -52,24 +50,27 @@ describe('ElectronFileSystemService', () => {
   });
 
   describe('searchFiles', () => {
-    it('should search files using ripgrep', async () => {
-      const mockOutput = JSON.stringify({
-        type: 'match',
-        data: {
-          path: { text: '/test/workspace/src/index.ts' },
-          line_number: 10,
-          lines: { text: '  const result = "test";\n' },
+    it('should convert daemon-core SearchHits to FileSearchResult shape', async () => {
+      // SearchHit relPath is relative to the search root, which is the
+      // workspace path when no `options.path` is provided.
+      mockSearch.mockResolvedValue([
+        {
+          relPath: 'src/index.ts',
+          line: 10,
+          column: 16,
+          preview: '  const result = "test";',
+          matchByteStart: 16,
+          matchByteEnd: 20,
         },
-      }) + '\n' + JSON.stringify({
-        type: 'match',
-        data: {
-          path: { text: '/test/workspace/src/utils.ts' },
-          line_number: 20,
-          lines: { text: '  return test();\n' },
+        {
+          relPath: 'src/utils.ts',
+          line: 20,
+          column: 9,
+          preview: '  return test();',
+          matchByteStart: 9,
+          matchByteEnd: 13,
         },
-      });
-
-      mockExecAsync.mockResolvedValue({ stdout: mockOutput });
+      ]);
 
       const result = await service.searchFiles('test', {
         caseSensitive: false,
@@ -91,8 +92,8 @@ describe('ElectronFileSystemService', () => {
       expect(result.totalResults).toBe(2);
     });
 
-    it('should handle search with file pattern', async () => {
-      mockExecAsync.mockResolvedValue({ stdout: '' });
+    it('should forward filePattern through as globs and constrain searchPath to options.path', async () => {
+      mockSearch.mockResolvedValue([]);
 
       await service.searchFiles('test', {
         path: 'src',
@@ -101,15 +102,28 @@ describe('ElectronFileSystemService', () => {
         maxResults: 10,
       });
 
-      expect(mockExecAsync).toHaveBeenCalledWith(
-        'rg',
-        expect.arrayContaining(['-g', '*.ts']),
-        expect.any(Object),
+      expect(mockSearch).toHaveBeenCalledWith(
+        '/test/workspace/src',
+        expect.objectContaining({
+          pattern: 'test',
+          caseSensitive: true,
+          limit: 10,
+          globs: ['*.ts'],
+        }),
       );
     });
 
-    it('should handle search errors', async () => {
-      mockExecAsync.mockRejectedValue(new Error('Command failed'));
+    it('should reject filePatterns containing shell metacharacters', async () => {
+      const result = await service.searchFiles('test', {
+        filePattern: 'foo; rm -rf /',
+      });
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Invalid file pattern');
+      expect(mockSearch).not.toHaveBeenCalled();
+    });
+
+    it('should propagate errors from daemon-core search', async () => {
+      mockSearch.mockRejectedValue(new Error('Command failed'));
 
       const result = await service.searchFiles('test', {});
 

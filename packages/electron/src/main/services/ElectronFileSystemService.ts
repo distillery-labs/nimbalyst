@@ -7,10 +7,8 @@
  */
 
 import { readFile, readdir, stat } from 'fs/promises';
-import { join, relative, isAbsolute, extname } from 'path';
+import { join, relative, resolve, isAbsolute, extname } from 'path';
 import { glob } from 'glob';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import type {
   FileSystemService,
   FileSearchOptions,
@@ -20,10 +18,9 @@ import type {
   FileReadOptions
 } from '@nimbalyst/runtime';
 import { logger } from '../utils/logger';
+import { getLocalFiles } from '../runtime/LocalRuntime';
 import { SafePathValidator } from '../security/SafePathValidator';
 import { shouldExcludeFile, shouldExcludeDir, GLOB_EXCLUDE_PATTERNS } from '../utils/fileFilters';
-
-const execFileAsync = promisify(execFile);
 
 export class ElectronFileSystemService implements FileSystemService {
   private workspacePath: string;
@@ -63,62 +60,42 @@ export class ElectronFileSystemService implements FileSystemService {
 
       this.logAccess(searchPath, 'search', true);
 
-      // Build ripgrep arguments safely (no shell interpolation)
-      const rgArgs = ['--json'];
-
-      if (!options?.caseSensitive) {
-        rgArgs.push('-i');
+      // Validate the file pattern (search() rejects shell metacharacters
+      // internally, but we want a structured per-caller error here).
+      if (options?.filePattern && /[;&|`$]/.test(options.filePattern)) {
+        return {
+          success: false,
+          error: 'Invalid file pattern',
+        };
       }
-
-      rgArgs.push('-m', String(options?.maxResults || 50));
-
-      if (options?.filePattern) {
-        // Validate file pattern doesn't contain dangerous chars
-        if (/[;&|`$]/.test(options.filePattern)) {
-          return {
-            success: false,
-            error: 'Invalid file pattern'
-          };
-        }
-        rgArgs.push('-g', options.filePattern);
-      }
-
-      rgArgs.push(query, searchPath);
 
       logger.ai.info('[FileSystemService] Searching files', {
         query,
         path: SafePathValidator.getSafeLogPath(searchPath),
-        args: rgArgs
       });
 
-      const { stdout } = await execFileAsync('rg', rgArgs, {
-        maxBuffer: 10 * 1024 * 1024,
-        timeout: 30000 // 30 second timeout
+      const hits = await getLocalFiles().search(searchPath, {
+        pattern: query,
+        caseSensitive: options?.caseSensitive ?? false,
+        limit: options?.maxResults ?? 50,
+        ...(options?.filePattern ? { globs: [options.filePattern] } : {}),
       });
 
-      // Parse ripgrep JSON output
-      const results: FileSearchResult[] = [];
-
-      for (const line of stdout.split('\n').filter(Boolean)) {
-        try {
-          const parsed = JSON.parse(line);
-          if (parsed.type === 'match') {
-            const filePath = relative(this.workspacePath, parsed.data.path.text);
-            results.push({
-              file: filePath,
-              line: parsed.data.line_number,
-              content: parsed.data.lines.text.trim()
-            });
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      }
+      // daemon-core returns relPath relative to the search root; convert
+      // back to workspace-relative paths to preserve this service's contract.
+      const results: FileSearchResult[] = hits.map((hit) => {
+        const absolute = resolve(searchPath, hit.relPath);
+        return {
+          file: relative(this.workspacePath, absolute),
+          line: hit.line,
+          content: hit.preview.trim(),
+        };
+      });
 
       return {
         success: true,
         results,
-        totalResults: results.length
+        totalResults: results.length,
       };
     } catch (error) {
       logger.ai.error('[FileSystemService] Search failed', error);
