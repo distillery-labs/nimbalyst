@@ -144,6 +144,44 @@ describe('LocalFilesCapability', () => {
     });
   });
 
+  describe('listWorkspaceFiles (migration shim)', () => {
+    beforeEach(async () => {
+      // ripgrep's gitignore semantics are anchored on the presence of a
+      // `.git` directory; create one so the workspace looks like a real repo.
+      await mkdir(path.join(workspace, '.git'));
+      await mkdir(path.join(workspace, 'src'));
+      await writeFile(path.join(workspace, 'src', 'main.ts'), '');
+      await writeFile(path.join(workspace, 'README.md'), '');
+      await writeFile(path.join(workspace, '.gitignore'), 'secret.md\n');
+      await writeFile(path.join(workspace, 'secret.md'), 'hidden');
+    });
+
+    it('lists files in the workspace as absolute paths', async () => {
+      const result = await files.listWorkspaceFiles(workspace);
+      expect(result.length).toBeGreaterThan(0);
+      for (const p of result) {
+        expect(path.isAbsolute(p)).toBe(true);
+      }
+      const names = result.map((p) => path.basename(p)).sort();
+      expect(names).toContain('main.ts');
+      expect(names).toContain('README.md');
+    });
+
+    it('honors .gitignore by default', async () => {
+      const result = await files.listWorkspaceFiles(workspace);
+      const names = result.map((p) => path.basename(p));
+      expect(names).not.toContain('secret.md');
+    });
+
+    it('honors noIgnore:true and surfaces gitignored files', async () => {
+      const result = await files.listWorkspaceFiles(workspace, {
+        noIgnore: true,
+      });
+      const names = result.map((p) => path.basename(p));
+      expect(names).toContain('secret.md');
+    });
+  });
+
   describe('absolute-path migration shims', () => {
     it('statAbsolute returns metadata for an existing file', async () => {
       const abs = path.join(workspace, 'absolute.md');

@@ -394,6 +394,54 @@ export class LocalFilesCapability implements FilesCapability {
   }
 
   /**
+   * Spawn `rg --files` against an absolute root and return absolute paths,
+   * honoring the shared exclusion glob list. Optional `noIgnore` flag tells
+   * ripgrep to ignore .gitignore (used to surface gitignored helper files
+   * like `nimbalyst-local/` plan docs in @ typeahead).
+   *
+   * This is a migration shim: today's Electron quick-open / @ typeahead
+   * handlers want raw paths plus their own fuzzy logic on top. Once those
+   * handlers route through the workspace-scoped `quickOpen` interface
+   * (which carries its own fuzzy ranking), this method can retire.
+   */
+  async listWorkspaceFiles(
+    absoluteRoot: string,
+    options?: { noIgnore?: boolean },
+  ): Promise<string[]> {
+    const rgPath = await getRipgrepPath();
+    const args: string[] = [
+      '--files',
+      '--hidden',
+      ...(options?.noIgnore ? ['--no-ignore'] : []),
+      ...RIPGREP_EXCLUDE_ARGS,
+      absoluteRoot,
+    ];
+
+    let stdout = '';
+    try {
+      const result = await execFileAsync(rgPath, args, {
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 30_000,
+      });
+      stdout = result.stdout;
+    } catch (err) {
+      const e = err as { code?: unknown; stdout?: string };
+      if (e.code === 1) {
+        stdout = e.stdout ?? '';
+      } else {
+        throw err;
+      }
+    }
+
+    const out: string[] = [];
+    for (const line of stdout.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed) out.push(path.normalize(trimmed));
+    }
+    return out;
+  }
+
+  /**
    * Confine a relPath to the workspace root. Rejects absolute paths and
    * any traversal that escapes the workspace. Returns the safe absolute path.
    */

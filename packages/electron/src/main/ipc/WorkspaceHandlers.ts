@@ -29,6 +29,7 @@ import {
     getAppSetting
 } from '../utils/store';
 import { loadFileIntoWindow } from '../file/FileOperations';
+import { getLocalFiles } from '../runtime/LocalRuntime';
 import { safeHandle, safeOn } from '../utils/ipcRegistry';
 
 /**
@@ -108,6 +109,10 @@ const NIMBALYST_LOCAL_DIRNAME = 'nimbalyst-local';
 // Get the ripgrep binary path for the current platform.
 // Resolves the rg bundled by the @vscode/ripgrep package at
 // node_modules/@vscode/ripgrep/bin/rg(.exe).
+//
+// Still used by the two inline content-search handlers (search-workspace-file-content
+// and the legacy search-workspace-files) further down. Those will move to
+// `LocalFilesCapability.search` in a follow-up chunk; until then this stays.
 function getRipgrepPath(): string {
     const platform = os.platform();
     const rgBinaryName = platform === 'win32' ? 'rg.exe' : 'rg';
@@ -160,45 +165,20 @@ function getRipgrepPath(): string {
     return 'rg';
 }
 
-async function runRipgrepFiles(rootPath: string, options?: { noIgnore?: boolean }): Promise<string[]> {
-    const rgPath = getRipgrepPath();
-    const rgArgs = [
-        '--files',
-        '--hidden',  // Include dotfiles like .gitignore
-        ...(options?.noIgnore ? ['--no-ignore'] : []),
-        ...RIPGREP_EXCLUDE_ARGS_ARRAY,
-        rootPath
-    ];
-
-    let stdout = '';
-    try {
-        const result = await execFileAsync(rgPath, rgArgs, { maxBuffer: 5 * 1024 * 1024 });
-        stdout = result.stdout;
-    } catch (execError: any) {
-        // ripgrep returns exit code 1 when no matches found
-        if (execError.code === 1) {
-            stdout = execError.stdout || '';
-        } else {
-            throw execError;
-        }
-    }
-
-    if (!stdout) return [];
-
-    return stdout
-        .split('\n')
-        .filter(line => line.trim())
-        .map(file => path.normalize(file));
-}
-
-// Cross-platform file finder using ripgrep --files.
+// Cross-platform file finder using ripgrep --files (via daemon-core).
 // Respects .gitignore for the general workspace scan, but explicitly includes
 // nimbalyst-local/ so local plan files remain mentionable in @ typeahead.
+//
+// The ripgrep binary resolution and the spawn-with-exclusions logic both live
+// in @nimbalyst/daemon-core now (`LocalFilesCapability.listWorkspaceFiles`).
+// This wrapper just adds the nimbalyst-local merge and binary-extension
+// filtering on top.
 async function findWorkspaceFiles(dir: string): Promise<string[]> {
-    const baseFiles = await runRipgrepFiles(dir);
+    const files = getLocalFiles();
+    const baseFiles = await files.listWorkspaceFiles(dir);
     const nimbalystLocalPath = path.join(dir, NIMBALYST_LOCAL_DIRNAME);
     const extraFiles = existsSync(nimbalystLocalPath)
-      ? await runRipgrepFiles(nimbalystLocalPath, { noIgnore: true })
+      ? await files.listWorkspaceFiles(nimbalystLocalPath, { noIgnore: true })
       : [];
 
     return Array.from(new Set([...baseFiles, ...extraFiles]))
