@@ -65,6 +65,23 @@ Nimbalyst is an extensible, AI-native workspace that supports multiple editor ty
 
 This monorepo contains the Electron desktop app, runtime services (including the Lexical editor), extension SDK, native iOS app, and mobile support via Capacitor.
 
+## Fork & Branch Model
+
+This repository is the **Distillery Labs fork** of upstream Nimbalyst. We intend to keep tracking upstream releases for the foreseeable future while developing our own fork-local changes.
+
+**Remotes:**
+- `origin` → `https://github.com/distillery-labs/nimbalyst.git` — the fork; this is where we push and open PRs
+- `upstream` → `https://github.com/Nimbalyst/nimbalyst.git` — read-only; push URL is deliberately disabled with a sentinel value
+
+**Branches:**
+- `main` — fork trunk; what we build and ship from. Not a clean mirror of upstream.
+- `merge/upstream-X.Y.Z` — one branch per upstream catch-up; opened as a PR against `origin/main`. Keep the merge diff a pure import; fork-local CHANGELOG cleanup or other adjustments go in a follow-up commit on the same branch, not amended into the merge commit.
+- Short-lived feature branches off `main` for fork-local work (rebrand, cost tracking, apple-photos extension, automations precheck, etc.).
+- `multi-runtime` — long-lived exploration branch (lives in a separate worktree at `/Users/jesse/projects/nimbalyst-multi-runtime`). After upstream merges land on `main`, merge `main` → `multi-runtime` to keep it current.
+- `fork-snapshot-<date>` — occasional WIP snapshots of in-flight fork work that should be split into per-workstream branches later.
+
+**CRITICAL: gh CLI footgun.** `gh pr create` without `--repo` defaults to the **upstream** remote when one is detected, opening a cross-repo PR that proposes to push fork-local changes up to `Nimbalyst/nimbalyst`. Always pass `--repo distillery-labs/nimbalyst` explicitly, and verify the returned URL is `github.com/distillery-labs/nimbalyst/...` before treating the PR as opened.
+
 ## Extension Architecture
 
 See [EXTENSION_ARCHITECTURE.md](./docs/EXTENSION_ARCHITECTURE.md) for the EditorHost contract, supported editor types (Monaco, Lexical, custom React), the manifest format, and extension development guidelines.
