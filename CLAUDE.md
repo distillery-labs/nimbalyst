@@ -220,7 +220,6 @@ See the Critical Rules block above ("Always Run Your Own Observation Commands").
 - **Never commit files under `nimbalyst-local/`** — gitignored, local-only working files
 - **Never provide time or effort estimates**
 - **Don't disable tests without asking first**
-- **Don't run `npm run dev` yourself** — user does that
 - **Never release without being explicitly instructed**
 - **Don't `git reset` or `git add -A` without asking**
 - **Don't add `Co-Authored-By` lines to commit messages**
