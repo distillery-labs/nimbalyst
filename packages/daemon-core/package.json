@@ -18,9 +18,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@nimbalyst/collab-protocol": "*"
+    "@nimbalyst/collab-protocol": "*",
+    "@vscode/ripgrep": "^1.17.1",
+    "chokidar": "^4.0.3"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "typescript": "^5.0.0"
   }
 }

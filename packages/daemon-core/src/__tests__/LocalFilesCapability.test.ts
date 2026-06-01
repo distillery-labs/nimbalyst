@@ -166,23 +166,141 @@ describe('LocalFilesCapability', () => {
     });
   });
 
-  describe('search / quickOpen / watch (not yet implemented)', () => {
-    it('search throws CAPABILITY_NOT_SUPPORTED', async () => {
-      await expect(
-        files.search(workspace, { pattern: 'anything' }),
-      ).rejects.toMatchObject({ code: 'CAPABILITY_NOT_SUPPORTED' });
+  describe('search (ripgrep-backed)', () => {
+    beforeEach(async () => {
+      await mkdir(path.join(workspace, 'src'));
+      await writeFile(path.join(workspace, 'src', 'one.ts'), 'hello world\nhello again\n');
+      await writeFile(path.join(workspace, 'src', 'two.ts'), 'goodbye world\n');
+      await writeFile(path.join(workspace, 'README.md'), 'Hello — uppercase H\n');
     });
 
-    it('quickOpen throws CAPABILITY_NOT_SUPPORTED', async () => {
-      await expect(
-        files.quickOpen(workspace, 'foo', 10),
-      ).rejects.toMatchObject({ code: 'CAPABILITY_NOT_SUPPORTED' });
+    it('finds matching lines across files', async () => {
+      const hits = await files.search(workspace, { pattern: 'world' });
+      const previews = hits.map((h) => h.preview).sort();
+      expect(previews).toContain('hello world');
+      expect(previews).toContain('goodbye world');
     });
 
-    it('watch throws CAPABILITY_NOT_SUPPORTED', async () => {
-      await expect(files.watch()).rejects.toMatchObject({
-        code: 'CAPABILITY_NOT_SUPPORTED',
+    it('honors caseSensitive=false (default) and finds case-insensitive matches', async () => {
+      const hits = await files.search(workspace, { pattern: 'hello' });
+      expect(hits.some((h) => h.preview.includes('Hello — uppercase H'))).toBe(true);
+    });
+
+    it('honors caseSensitive=true', async () => {
+      const hits = await files.search(workspace, { pattern: 'hello', caseSensitive: true });
+      expect(hits.every((h) => !h.preview.includes('Hello — uppercase H'))).toBe(true);
+    });
+
+    it('returns empty for unmatched pattern', async () => {
+      const hits = await files.search(workspace, { pattern: 'completelyabsentstring' });
+      expect(hits).toEqual([]);
+    });
+
+    it('returns empty for empty pattern (does not crash)', async () => {
+      const hits = await files.search(workspace, { pattern: '' });
+      expect(hits).toEqual([]);
+    });
+
+    it('rejects patterns with shell metacharacters', async () => {
+      await expect(
+        files.search(workspace, { pattern: 'foo; rm -rf /' }),
+      ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    });
+
+    it('honors glob filter', async () => {
+      const hits = await files.search(workspace, {
+        pattern: 'world',
+        globs: ['*.md'],
       });
+      expect(hits.every((h) => h.relPath.endsWith('.md'))).toBe(true);
+    });
+  });
+
+  describe('quickOpen (ripgrep --files + fuzzy)', () => {
+    beforeEach(async () => {
+      await mkdir(path.join(workspace, 'src'));
+      await mkdir(path.join(workspace, 'src', 'components'));
+      await writeFile(path.join(workspace, 'src', 'index.ts'), '');
+      await writeFile(path.join(workspace, 'src', 'components', 'Button.tsx'), '');
+      await writeFile(path.join(workspace, 'src', 'components', 'Modal.tsx'), '');
+      await writeFile(path.join(workspace, 'README.md'), '');
+      await writeFile(path.join(workspace, 'logo.png'), '');
+    });
+
+    it('lists files when query is empty (up to limit)', async () => {
+      const hits = await files.quickOpen(workspace, '', 100);
+      const rels = hits.map((h) => h.relPath).sort();
+      expect(rels).toEqual(expect.arrayContaining([
+        'README.md',
+        path.join('src', 'index.ts'),
+        path.join('src', 'components', 'Button.tsx'),
+      ]));
+      // PNG is binary — should be filtered out
+      expect(rels).not.toContain('logo.png');
+    });
+
+    it('ranks substring matches higher', async () => {
+      const hits = await files.quickOpen(workspace, 'button', 10);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]!.relPath.toLowerCase()).toContain('button');
+    });
+
+    it('returns empty when no file matches the fuzzy query', async () => {
+      const hits = await files.quickOpen(workspace, 'zzqxn', 10);
+      expect(hits).toEqual([]);
+    });
+
+    it('respects limit', async () => {
+      const hits = await files.quickOpen(workspace, '', 2);
+      expect(hits).toHaveLength(2);
+    });
+  });
+
+  describe('watch (chokidar-backed)', () => {
+    it('emits created/modified/deleted events for files within the workspace', async () => {
+      const events: Array<{ kind: string; relPath: string }> = [];
+      const handle = await files.watch(
+        { workspacePath: workspace },
+        (event) => {
+          if (event.kind === 'renamed') {
+            events.push({ kind: 'renamed', relPath: event.toRel });
+          } else {
+            events.push({ kind: event.kind, relPath: event.relPath });
+          }
+        },
+      );
+
+      try {
+        // chokidar takes a moment to start watching
+        await new Promise((r) => setTimeout(r, 200));
+
+        await writeFile(path.join(workspace, 'new.md'), 'hi');
+        await new Promise((r) => setTimeout(r, 300));
+
+        await writeFile(path.join(workspace, 'new.md'), 'hi again');
+        await new Promise((r) => setTimeout(r, 300));
+
+        await rm(path.join(workspace, 'new.md'));
+        await new Promise((r) => setTimeout(r, 300));
+      } finally {
+        await handle.unsubscribe();
+      }
+
+      const kinds = events.map((e) => e.kind);
+      expect(kinds).toContain('created');
+      expect(kinds).toContain('modified');
+      expect(kinds).toContain('deleted');
+      expect(events.every((e) => e.relPath === 'new.md')).toBe(true);
+    });
+
+    it('returns a handle with a stable id and unsubscribe', async () => {
+      const handle = await files.watch(
+        { workspacePath: workspace },
+        () => {},
+      );
+      expect(typeof handle.id).toBe('string');
+      expect(handle.id.length).toBeGreaterThan(8);
+      await handle.unsubscribe();
     });
   });
 });

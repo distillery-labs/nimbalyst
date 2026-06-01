@@ -1,11 +1,16 @@
+import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { promisify } from 'node:util';
 
 import { RuntimeErrorObject } from '../types/errors.js';
 import type {
   FileContent,
   FileEntry,
   FileStat,
+  FileWatchEvent,
+  FileWatchParams,
   FilesCapability,
   ListOpts,
   QuickOpenHit,
@@ -15,6 +20,11 @@ import type {
 } from '../domains/files.js';
 import type { StreamHandle } from '../types/streams.js';
 import type { WorkspacePath } from '../types/identifiers.js';
+
+import { BINARY_EXTENSIONS, RIPGREP_EXCLUDE_ARGS } from './exclusions.js';
+import { getRipgrepPath } from './ripgrep.js';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Node-fs implementation of FilesCapability. Used by the local runtime
@@ -150,37 +160,190 @@ export class LocalFilesCapability implements FilesCapability {
   }
 
   async search(
-    _workspacePath: WorkspacePath,
-    _query: SearchQuery,
+    workspacePath: WorkspacePath,
+    query: SearchQuery,
   ): Promise<SearchHit[]> {
-    throw new RuntimeErrorObject({
-      code: 'CAPABILITY_NOT_SUPPORTED',
-      message:
-        'LocalFilesCapability.search is not implemented yet — ripgrep plumbing pending.',
-      retryable: false,
-    });
+    if (query.pattern.length === 0) {
+      return [];
+    }
+    if (/[;&|`$]/.test(query.pattern)) {
+      throw new RuntimeErrorObject({
+        code: 'PERMISSION_DENIED',
+        message: 'Search pattern contains shell metacharacters',
+        retryable: false,
+      });
+    }
+
+    const root = path.resolve(workspacePath);
+    const rgPath = await getRipgrepPath();
+    const args: string[] = ['--json'];
+    if (!query.caseSensitive) args.push('-i');
+    if (typeof query.limit === 'number') args.push('-m', String(query.limit));
+    for (const glob of query.globs ?? []) {
+      // Reject obviously dangerous glob strings — match the existing
+      // packages/electron filter.
+      if (/[;&|`$]/.test(glob)) {
+        throw new RuntimeErrorObject({
+          code: 'PERMISSION_DENIED',
+          message: 'Search glob contains shell metacharacters',
+          retryable: false,
+        });
+      }
+      args.push('-g', glob);
+    }
+    args.push(...RIPGREP_EXCLUDE_ARGS);
+    args.push('--', query.pattern, root);
+
+    let stdout = '';
+    try {
+      const result = await execFileAsync(rgPath, args, {
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 30_000,
+      });
+      stdout = result.stdout;
+    } catch (err) {
+      // ripgrep exits 1 when there are no matches — that's a normal empty
+      // result, not an error.
+      const e = err as { code?: unknown; stdout?: string };
+      if (e.code === 1) {
+        stdout = e.stdout ?? '';
+      } else {
+        throw err;
+      }
+    }
+
+    const hits: SearchHit[] = [];
+    for (const line of stdout.split('\n')) {
+      if (!line) continue;
+      try {
+        const parsed = JSON.parse(line) as RipgrepJsonRecord;
+        if (parsed.type !== 'match') continue;
+        const absPath = parsed.data.path.text;
+        const relPath = path.relative(root, absPath);
+        const match = parsed.data.submatches?.[0];
+        hits.push({
+          relPath,
+          line: parsed.data.line_number,
+          column: match ? match.start + 1 : 1,
+          preview: parsed.data.lines.text.replace(/\r?\n$/, ''),
+        });
+      } catch {
+        // ignore unparseable line
+      }
+    }
+    return hits;
   }
 
   async quickOpen(
-    _workspacePath: WorkspacePath,
-    _query: string,
-    _limit: number,
+    workspacePath: WorkspacePath,
+    query: string,
+    limit: number,
   ): Promise<QuickOpenHit[]> {
-    throw new RuntimeErrorObject({
-      code: 'CAPABILITY_NOT_SUPPORTED',
-      message:
-        'LocalFilesCapability.quickOpen is not implemented yet — ripgrep plumbing pending.',
-      retryable: false,
-    });
+    const root = path.resolve(workspacePath);
+    const rgPath = await getRipgrepPath();
+    const args: string[] = [
+      '--files',
+      '--hidden',
+      ...RIPGREP_EXCLUDE_ARGS,
+      root,
+    ];
+
+    let stdout = '';
+    try {
+      const result = await execFileAsync(rgPath, args, {
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 30_000,
+      });
+      stdout = result.stdout;
+    } catch (err) {
+      const e = err as { code?: unknown; stdout?: string };
+      if (e.code === 1) {
+        stdout = e.stdout ?? '';
+      } else {
+        throw err;
+      }
+    }
+
+    const allRel: string[] = [];
+    for (const line of stdout.split('\n')) {
+      const absPath = line.trim();
+      if (!absPath) continue;
+      const ext = path.extname(absPath).toLowerCase();
+      if (BINARY_EXTENSIONS.has(ext)) continue;
+      allRel.push(path.relative(root, absPath));
+    }
+
+    const lowerQuery = query.toLowerCase();
+    if (lowerQuery.length === 0) {
+      return allRel.slice(0, limit).map((relPath) => ({ relPath, score: 1 }));
+    }
+
+    const scored: QuickOpenHit[] = [];
+    for (const relPath of allRel) {
+      const score = fuzzyScore(relPath.toLowerCase(), lowerQuery);
+      if (score > 0) {
+        scored.push({ relPath, score });
+      }
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit);
   }
 
-  async watch(): Promise<StreamHandle> {
-    throw new RuntimeErrorObject({
-      code: 'CAPABILITY_NOT_SUPPORTED',
-      message:
-        'LocalFilesCapability.watch is not implemented yet — chokidar plumbing pending.',
-      retryable: false,
+  async watch(
+    params: FileWatchParams,
+    onEvent: (event: FileWatchEvent) => void,
+  ): Promise<StreamHandle> {
+    const root = params.relPath
+      ? this.resolveSafe(params.workspacePath, params.relPath)
+      : path.resolve(params.workspacePath);
+    const workspaceRoot = path.resolve(params.workspacePath);
+
+    const chokidar = await import('chokidar');
+    const watcher = chokidar.watch(root, {
+      ignoreInitial: true,
+      persistent: true,
+      ignored: (target: string) => {
+        // Skip noisy dirs by name segment match (cheap; chokidar passes paths
+        // for both files and the directory entries on traverse).
+        const segments = target.split(/[\\/]/);
+        return segments.some((seg) =>
+          seg === 'node_modules'
+          || seg === '.git'
+          || seg === 'dist'
+          || seg === 'build'
+          || seg === 'out',
+        );
+      },
     });
+
+    const emit = (event: FileWatchEvent) => {
+      try {
+        onEvent(event);
+      } catch {
+        // listener errors shouldn't tear down the watcher
+      }
+    };
+
+    const toRel = (absPath: string) => path.relative(workspaceRoot, absPath);
+
+    watcher
+      .on('add', (absPath: string) =>
+        emit({ kind: 'created', relPath: toRel(absPath) }),
+      )
+      .on('change', (absPath: string) =>
+        emit({ kind: 'modified', relPath: toRel(absPath) }),
+      )
+      .on('unlink', (absPath: string) =>
+        emit({ kind: 'deleted', relPath: toRel(absPath) }),
+      );
+
+    const handle: StreamHandle = {
+      id: randomUUID(),
+      async unsubscribe() {
+        await watcher.close();
+      },
+    };
+    return handle;
   }
 
   // ────────────────────────────────────────────────────────────────────
@@ -277,4 +440,48 @@ function isNodeError(err: unknown): err is NodeJS.ErrnoException {
 function isProbablyBinary(buffer: Buffer): boolean {
   const sample = buffer.subarray(0, Math.min(buffer.length, 8192));
   return sample.includes(0);
+}
+
+interface RipgrepJsonRecord {
+  type: string;
+  data: {
+    path: { text: string };
+    line_number: number;
+    lines: { text: string };
+    submatches?: Array<{ start: number; end: number; match?: { text: string } }>;
+  };
+}
+
+/**
+ * Cheap subsequence fuzzy match — same shape the renderer's QuickOpen uses.
+ * Returns 0 when `query` chars don't appear in `target` in order.
+ * Higher score = better match. Bonuses for: consecutive matches, matches at
+ * path-segment boundaries, and matches in the basename.
+ */
+function fuzzyScore(target: string, query: string): number {
+  let score = 0;
+  let qi = 0;
+  let lastMatchIdx = -1;
+  const lastSlash = target.lastIndexOf('/');
+  const basenameStart = lastSlash === -1 ? 0 : lastSlash + 1;
+
+  for (let i = 0; i < target.length && qi < query.length; i++) {
+    if (target[i] === query[qi]) {
+      let pointScore = 1;
+      // Consecutive match bonus
+      if (lastMatchIdx === i - 1) pointScore += 3;
+      // Boundary bonus (start of string, after /, after .)
+      if (i === 0 || target[i - 1] === '/' || target[i - 1] === '.') {
+        pointScore += 2;
+      }
+      // Basename match bonus
+      if (i >= basenameStart) pointScore += 1;
+      score += pointScore;
+      lastMatchIdx = i;
+      qi++;
+    }
+  }
+
+  if (qi < query.length) return 0; // Not all query chars matched
+  return score;
 }
