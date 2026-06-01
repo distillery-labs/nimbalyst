@@ -24,6 +24,7 @@ import { MCPServersPanel } from '../GlobalSettings/panels/MCPServersPanel';
 import { ClaudeCodePluginsPanel } from '../GlobalSettings/panels/ClaudeCodePluginsPanel';
 import { SyncPanel } from '../GlobalSettings/panels/SyncPanel';
 import { SharedLinksPanel } from '../GlobalSettings/panels/SharedLinksPanel';
+import { CredentialProfilesPanel } from '../GlobalSettings/panels/CredentialProfilesPanel';
 import { ProjectPermissionsPanel } from './panels/ProjectPermissionsPanel';
 import { ProviderOverrideWrapper } from './panels/ProviderOverrideWrapper';
 import { InstalledExtensionsPanel } from './panels/InstalledExtensionsPanel';
@@ -604,6 +605,8 @@ export function SettingsView({
         return <SyncPanel />;
       case 'shared-links':
         return <SharedLinksPanel />;
+      case 'credential-profiles':
+        return <CredentialProfilesPanel />;
       case 'themes':
         return (
           <ThemesPanel

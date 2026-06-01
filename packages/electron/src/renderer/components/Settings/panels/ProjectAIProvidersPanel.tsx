@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { MaterialSymbol, getProviderIcon } from '@nimbalyst/runtime';
+import {
+  CREDENTIAL_PROFILE_IPC,
+  type CredentialProfile,
+  type CreateCredentialProfileInput,
+} from '../../../../shared/credentialProfiles';
 
 interface ProviderOverride {
   enabled?: boolean;
   models?: string[];
   defaultModel?: string;
+  /** Legacy inline key. Preserved for one release; new selections use credentialProfileId. */
   apiKey?: string;
+  credentialProfileId?: string;
 }
 
 interface AIProviderOverrides {
@@ -53,6 +60,10 @@ export function ProjectAIProvidersPanel({ workspacePath, workspaceName }: Projec
   const [globalSettings, setGlobalSettings] = useState<Record<string, GlobalProviderSettings>>({});
   const [globalApiKeys, setGlobalApiKeys] = useState<Record<string, string>>({});
   const [projectOverrides, setProjectOverrides] = useState<AIProviderOverrides>({});
+  const [credentialProfiles, setCredentialProfiles] = useState<CredentialProfile[]>([]);
+  /** Per-provider, transient: user chose to enter a new key inline (creates a profile on save). */
+  const [newKeyInput, setNewKeyInput] = useState<Record<string, string>>({});
+  const [newKeyLabel, setNewKeyLabel] = useState<Record<string, string>>({});
   const [availableModels, setAvailableModels] = useState<Record<string, Model[]>>({});
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [trackerAutomationOverride, setTrackerAutomationOverride] = useState<TrackerAutomationOverride | null>(null);
@@ -74,6 +85,14 @@ export function ProjectAIProvidersPanel({ workspacePath, workspaceName }: Projec
       }
       if (globalResult.apiKeys) {
         setGlobalApiKeys(globalResult.apiKeys);
+      }
+
+      // Load credential profiles
+      try {
+        const profiles = (await window.electronAPI.invoke(CREDENTIAL_PROFILE_IPC.list)) as CredentialProfile[];
+        setCredentialProfiles(Array.isArray(profiles) ? profiles : []);
+      } catch (err) {
+        console.error('Failed to load credential profiles:', err);
       }
 
       // Load project overrides
@@ -204,6 +223,70 @@ export function ProjectAIProvidersPanel({ workspacePath, workspaceName }: Projec
       return newOverrides;
     });
     setHasChanges(true);
+  };
+
+  const handleSelectProfile = (providerId: string, profileId: string | null) => {
+    setProjectOverrides(prev => {
+      const newOverrides = { ...prev };
+      if (!newOverrides.providers) newOverrides.providers = {};
+      if (!newOverrides.providers[providerId]) newOverrides.providers[providerId] = {};
+      if (profileId) {
+        newOverrides.providers[providerId].credentialProfileId = profileId;
+        delete newOverrides.providers[providerId].apiKey;
+      } else {
+        delete newOverrides.providers[providerId].credentialProfileId;
+        delete newOverrides.providers[providerId].apiKey;
+      }
+      return newOverrides;
+    });
+    setNewKeyInput(prev => ({ ...prev, [providerId]: '' }));
+    setNewKeyLabel(prev => ({ ...prev, [providerId]: '' }));
+    setHasChanges(true);
+  };
+
+  const handleCreateInlineProfile = async (provider: ProviderInfo) => {
+    const value = newKeyInput[provider.id]?.trim();
+    const label = newKeyLabel[provider.id]?.trim() || `${workspaceName} – ${provider.name}`;
+    if (!value || !provider.apiKeyField) return;
+    try {
+      const input: CreateCredentialProfileInput = {
+        label,
+        providerId: provider.id,
+        kind: 'apiKey',
+        apiKey: { value },
+      };
+      const profile = (await window.electronAPI.invoke(
+        CREDENTIAL_PROFILE_IPC.create,
+        input,
+      )) as CredentialProfile;
+      setCredentialProfiles(prev => [...prev, profile]);
+      handleSelectProfile(provider.id, profile.id);
+    } catch (err) {
+      console.error('Failed to create credential profile:', err);
+      alert(`Failed to create profile: ${(err as Error).message}`);
+    }
+  };
+
+  const handleConvertLegacyKey = async (provider: ProviderInfo) => {
+    const override = getOverride(provider.id);
+    if (!override?.apiKey) return;
+    try {
+      const input: CreateCredentialProfileInput = {
+        label: `${workspaceName} – ${provider.name}`,
+        providerId: provider.id,
+        kind: 'apiKey',
+        apiKey: { value: override.apiKey },
+      };
+      const profile = (await window.electronAPI.invoke(
+        CREDENTIAL_PROFILE_IPC.create,
+        input,
+      )) as CredentialProfile;
+      setCredentialProfiles(prev => [...prev, profile]);
+      handleSelectProfile(provider.id, profile.id);
+    } catch (err) {
+      console.error('Failed to convert legacy key:', err);
+      alert(`Failed to convert key: ${(err as Error).message}`);
+    }
   };
 
   const handleModelToggle = (providerId: string, modelId: string, enabled: boolean) => {
@@ -342,26 +425,117 @@ export function ProjectAIProvidersPanel({ workspacePath, workspaceName }: Projec
                           </div>
                         </div>
 
-                        {/* API Key (if applicable) */}
-                        {provider.apiKeyField && (
-                          <div className="config-section py-4 border-b border-[var(--nim-border)]">
-                            <h4 className="config-section-title nim-section-label m-0 mb-3">API Key</h4>
-                            <div className="api-key-info mb-2">
-                              <span className="api-key-hint text-xs text-[var(--nim-text-faint)]">
-                                {globalApiKeys[provider.apiKeyField]
-                                  ? 'Leave empty to use global key, or enter a project-specific key'
-                                  : 'Enter an API key for this project'}
-                              </span>
+                        {/* Credential profile picker */}
+                        {provider.apiKeyField && (() => {
+                          const providerProfiles = credentialProfiles.filter(p => p.providerId === provider.id);
+                          const selectedProfileId = override?.credentialProfileId;
+                          const hasLegacyKey = !!override?.apiKey && !selectedProfileId;
+                          // "new" is a sentinel value for "show inline create form"
+                          const dropdownValue = selectedProfileId
+                            ? selectedProfileId
+                            : (newKeyInput[provider.id] !== undefined ? '__new__' : '');
+                          return (
+                            <div className="config-section py-4 border-b border-[var(--nim-border)]">
+                              <h4 className="config-section-title nim-section-label m-0 mb-3">Credential</h4>
+                              <select
+                                className="nim-input text-[13px] w-full"
+                                value={dropdownValue}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v === '__new__') {
+                                    setNewKeyInput(prev => ({ ...prev, [provider.id]: '' }));
+                                    setNewKeyLabel(prev => ({ ...prev, [provider.id]: '' }));
+                                    handleSelectProfile(provider.id, null);
+                                  } else if (v === '') {
+                                    setNewKeyInput(prev => {
+                                      const { [provider.id]: _omit, ...rest } = prev;
+                                      return rest;
+                                    });
+                                    handleSelectProfile(provider.id, null);
+                                  } else {
+                                    setNewKeyInput(prev => {
+                                      const { [provider.id]: _omit, ...rest } = prev;
+                                      return rest;
+                                    });
+                                    handleSelectProfile(provider.id, v);
+                                  }
+                                }}
+                              >
+                                <option value="">
+                                  Use global default{globalApiKeys[provider.apiKeyField] ? '' : ' (no key configured)'}
+                                </option>
+                                {providerProfiles.map(p => (
+                                  <option key={p.id} value={p.id}>{p.label}</option>
+                                ))}
+                                <option value="__new__">+ New profile…</option>
+                              </select>
+
+                              {hasLegacyKey && (
+                                <div className="mt-3 flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-[var(--nim-accent-subtle)] border border-[var(--nim-accent-subtle)] text-[13px]">
+                                  <span className="text-[var(--nim-text)]">
+                                    This project has a saved key from an older Nimbalyst version. Convert it into a credential profile?
+                                  </span>
+                                  <button
+                                    className="nim-btn-secondary text-xs px-3 py-1.5 shrink-0"
+                                    onClick={() => handleConvertLegacyKey(provider)}
+                                  >
+                                    Convert
+                                  </button>
+                                </div>
+                              )}
+
+                              {newKeyInput[provider.id] !== undefined && (
+                                <div className="mt-3 flex flex-col gap-2 p-3 rounded-md bg-[var(--nim-bg)] border border-[var(--nim-primary)]">
+                                  <div className="flex flex-col gap-1">
+                                    <label className="text-xs text-[var(--nim-text-muted)]">Profile label</label>
+                                    <input
+                                      type="text"
+                                      className="nim-input text-[13px]"
+                                      placeholder={`${workspaceName} – ${provider.name}`}
+                                      value={newKeyLabel[provider.id] ?? ''}
+                                      onChange={(e) => setNewKeyLabel(prev => ({ ...prev, [provider.id]: e.target.value }))}
+                                    />
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <label className="text-xs text-[var(--nim-text-muted)]">API key</label>
+                                    <input
+                                      type="password"
+                                      className="nim-input font-mono text-[13px]"
+                                      placeholder="sk-..."
+                                      value={newKeyInput[provider.id] ?? ''}
+                                      onChange={(e) => setNewKeyInput(prev => ({ ...prev, [provider.id]: e.target.value }))}
+                                      autoFocus
+                                    />
+                                  </div>
+                                  <div className="flex justify-end gap-2">
+                                    <button
+                                      className="nim-btn-secondary text-xs px-3 py-1.5"
+                                      onClick={() => {
+                                        setNewKeyInput(prev => {
+                                          const { [provider.id]: _omit, ...rest } = prev;
+                                          return rest;
+                                        });
+                                        setNewKeyLabel(prev => {
+                                          const { [provider.id]: _omit, ...rest } = prev;
+                                          return rest;
+                                        });
+                                      }}
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      className="nim-btn-primary text-xs px-3 py-1.5"
+                                      disabled={!newKeyInput[provider.id]?.trim()}
+                                      onClick={() => handleCreateInlineProfile(provider)}
+                                    >
+                                      Save profile
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            <input
-                              type="password"
-                              className="api-key-input nim-input font-mono text-[13px]"
-                              placeholder={globalApiKeys[provider.apiKeyField] ? 'Using global key...' : 'Enter API key...'}
-                              value={override?.apiKey || ''}
-                              onChange={(e) => handleApiKeyChange(provider.id, e.target.value)}
-                            />
-                          </div>
-                        )}
+                          );
+                        })()}
 
                         {/* Models Selection */}
                         {models.length > 0 && (
