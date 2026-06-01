@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Claude Code variants `opus-4-7` and `opus-4-7-1m` pinned to Opus 4.7 so it stays selectable after the canonical `opus` alias was bumped to 4.8. (#473)
 - Claude Code sessions use the SDK's `permissionMode: 'auto'` classifier when workspace trust is "Allow All"; safe operations run silently, uncertain ones prompt the user. (#379)
 - TrustIndicator sidebar icon for "Allow All" no longer uses the warning triangle/yellow color, reflecting that the auto-classifier now reviews operations rather than blanket-bypassing them. (fork-local)
+- Credential Profiles: backend foundation for per-project and per-thread AI credential overrides. Adds a global `credential-profiles.json` store, IPC handlers (`credentials:list / :create / :update / :delete / :references`), and a new resolution chokepoint (`resolveCredential`) with precedence session → project profile → project legacy `apiKey` → global. Explicit profiles bypass the claude-code authMethod gate so a per-project API key works even when the user is logged in via OAuth globally. UI panel and project/thread pickers land in follow-up commits. (fork-local)
 <!-- New features go here -->
 
 ### Changed

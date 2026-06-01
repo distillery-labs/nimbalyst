@@ -318,8 +318,12 @@ export interface ProviderOverride {
   models?: string[];
   /** Override default model for this provider */
   defaultModel?: string;
-  /** Project-specific API key (optional, overrides global key) */
+  /** Project-specific API key (DEPRECATED — kept for back-compat; new code uses credentialProfileId).
+   * Resolution still reads this as a fallback after credentialProfileId so existing workspaces
+   * keep working until the user opts into the new profile flow. See plans/credential-profiles.md. */
   apiKey?: string;
+  /** Reference to a global credential profile. Preferred over `apiKey`. */
+  credentialProfileId?: string;
 }
 
 /**
@@ -1079,6 +1083,41 @@ export function clearAIProviderOverrides(workspacePath: string): void {
   updateWorkspaceState(workspacePath, workspace => {
     delete workspace.aiProviderOverrides;
   });
+}
+
+/**
+ * Iterate every workspace's stored aiProviderOverrides without normalizing or
+ * touching unrelated state. Used by the credential-profile reference check —
+ * we need to know which workspaces still point at a profile before letting
+ * the user delete it.
+ *
+ * Returns the raw workspace path (decoded from the base64url key) paired
+ * with the providers map. Workspaces with no overrides are omitted.
+ */
+export function listWorkspaceProviderOverrides(): Array<{
+  workspacePath: string;
+  providers: Record<string, ProviderOverride>;
+}> {
+  const store = getWorkspaceStore();
+  const all = store.store as Record<string, WorkspaceState>;
+  const result: Array<{ workspacePath: string; providers: Record<string, ProviderOverride> }> = [];
+  for (const key of Object.keys(all)) {
+    if (!key.startsWith('ws:')) continue;
+    const state = all[key];
+    const providers = state?.aiProviderOverrides?.providers;
+    if (!providers || Object.keys(providers).length === 0) continue;
+    // Prefer the workspacePath stored on the state; fall back to decoding the key.
+    let workspacePath = state.workspacePath;
+    if (!workspacePath) {
+      try {
+        workspacePath = Buffer.from(key.slice(3), 'base64url').toString();
+      } catch {
+        continue;
+      }
+    }
+    result.push({ workspacePath, providers });
+  }
+  return result;
 }
 
 // Tracker Automation Override State Management
