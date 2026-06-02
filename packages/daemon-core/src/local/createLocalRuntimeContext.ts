@@ -17,6 +17,10 @@ import type { TerminalCapability } from '../domains/terminal.js';
 import type { TranscriptsCapability } from '../domains/transcripts.js';
 
 import { LocalFilesCapability } from './files.js';
+import {
+  WorkspaceEventBus,
+  type WorkspaceEventBusLogger,
+} from './workspaceEventBus.js';
 
 export interface LocalRuntimeContextOptions {
   runtimeId: string;
@@ -24,6 +28,13 @@ export interface LocalRuntimeContextOptions {
   runtimeVersion: string;
   workspaces: WorkspaceDescriptor[];
   features?: Partial<RuntimeFeatures>;
+  /**
+   * Logger for the workspace event bus. The Electron runtime supplies its
+   * `logger.main`. Omitted in headless contexts (tests, the eventual
+   * daemon binary if it ships its own logger) — see `WorkspaceEventBus`
+   * for the default fallback (errors to console, others silent).
+   */
+  workspaceEventBusLogger?: WorkspaceEventBusLogger;
 }
 
 const DEFAULT_FEATURES: RuntimeFeatures = {
@@ -70,7 +81,10 @@ export function createLocalRuntimeContext(
     workspaces: options.workspaces,
   };
 
-  const files = new LocalFilesCapability();
+  const bus = new WorkspaceEventBus({
+    logger: options.workspaceEventBusLogger,
+  });
+  const files = new LocalFilesCapability({ bus });
 
   return {
     capabilities,
@@ -84,9 +98,57 @@ export function createLocalRuntimeContext(
     extensions: notImplemented<ExtensionsCapability>('extensions'),
     mcp: notImplemented<MCPCapability>('mcp'),
     async shutdown() {
-      /* no resources to release yet */
+      await bus.stopAll();
     },
   };
+}
+
+/**
+ * Same as `createLocalRuntimeContext` but exposes the constructed `bus`
+ * alongside the context. Used by the Electron main process so it can hand
+ * out the same bus instance to Electron-side subscribers (file-tree watcher,
+ * session file watcher, project file sync, action prompts) without forcing
+ * them to discover it through the `files` capability.
+ */
+export function createLocalRuntimeContextWithBus(
+  options: LocalRuntimeContextOptions,
+): { context: RuntimeContext; bus: WorkspaceEventBus } {
+  const bus = new WorkspaceEventBus({
+    logger: options.workspaceEventBusLogger,
+  });
+  const features: RuntimeFeatures = {
+    ...DEFAULT_FEATURES,
+    ...options.features,
+  };
+  const capabilities: Capabilities = {
+    protocolVersion: RUNTIME_PROTOCOL_VERSION,
+    runtimeKind: 'local',
+    runtimeId: options.runtimeId,
+    runtimeName: options.runtimeName,
+    runtimeVersion: options.runtimeVersion,
+    features,
+    authMethods: ['inherit'],
+    aiProviders: [],
+    workspaces: options.workspaces,
+  };
+  const files = new LocalFilesCapability({ bus });
+
+  const context: RuntimeContext = {
+    capabilities,
+    files,
+    meta: notImplemented<MetaCapability>('meta'),
+    auth: notImplemented<AuthCapability>('auth'),
+    git: notImplemented<GitCapability>('git'),
+    sessions: notImplemented<SessionsCapability>('sessions'),
+    terminal: notImplemented<TerminalCapability>('terminal'),
+    transcripts: notImplemented<TranscriptsCapability>('transcripts'),
+    extensions: notImplemented<ExtensionsCapability>('extensions'),
+    mcp: notImplemented<MCPCapability>('mcp'),
+    async shutdown() {
+      await bus.stopAll();
+    },
+  };
+  return { context, bus };
 }
 
 /**

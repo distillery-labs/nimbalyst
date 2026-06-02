@@ -139,8 +139,25 @@ export type {
 } from './domains/meta.js';
 
 // Local-runtime implementation
-export { LocalFilesCapability } from './local/files.js';
+export {
+  LocalFilesCapability,
+  type LocalFilesCapabilityOptions,
+} from './local/files.js';
 export {
   createLocalRuntimeContext,
+  createLocalRuntimeContextWithBus,
   type LocalRuntimeContextOptions,
 } from './local/createLocalRuntimeContext.js';
+export {
+  WorkspaceEventBus,
+  type WorkspaceEventBusLogger,
+  type WorkspaceEventBusOptions,
+  type WorkspaceEventListener,
+  type WorkspaceEventType,
+  type GitignoreChangeHandler,
+} from './local/workspaceEventBus.js';
+export { isPathInWorkspace } from './local/workspace.js';
+export {
+  shouldExcludeDir,
+  pathContainsExcludedDir,
+} from './local/exclusions.js';

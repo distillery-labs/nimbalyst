@@ -23,8 +23,19 @@ import type { WorkspacePath } from '../types/identifiers.js';
 
 import { BINARY_EXTENSIONS, RIPGREP_EXCLUDE_ARGS } from './exclusions.js';
 import { getRipgrepPath } from './ripgrep.js';
+import type { WorkspaceEventBus } from './workspaceEventBus.js';
 
 const execFileAsync = promisify(execFile);
+
+export interface LocalFilesCapabilityOptions {
+  /**
+   * Shared workspace-event bus. `watch()` subscribes through this bus instead
+   * of spawning a per-call chokidar instance so N subscribers on the same
+   * workspace share a single underlying filesystem watcher. Optional only to
+   * keep older callers working in tests; production wiring always supplies one.
+   */
+  bus?: WorkspaceEventBus;
+}
 
 /**
  * Node-fs implementation of FilesCapability. Used by the local runtime
@@ -36,12 +47,14 @@ const execFileAsync = promisify(execFile);
  * last-writer-wins semantics today's IPC handlers already use. If we later
  * adopt compare-and-set, `write` can be extended to accept an `ifMatch`
  * parameter.
- *
- * Search, quickOpen, and watch are intentionally not implemented yet — they
- * need ripgrep / chokidar plumbing migrated from packages/electron and will
- * land in the next chunk.
  */
 export class LocalFilesCapability implements FilesCapability {
+  private readonly bus: WorkspaceEventBus | undefined;
+
+  constructor(options: LocalFilesCapabilityOptions = {}) {
+    this.bus = options.bus;
+  }
+
   async read(
     workspacePath: WorkspacePath,
     relPath: string,
@@ -299,28 +312,10 @@ export class LocalFilesCapability implements FilesCapability {
     params: FileWatchParams,
     onEvent: (event: FileWatchEvent) => void,
   ): Promise<StreamHandle> {
-    const root = params.relPath
-      ? this.resolveSafe(params.workspacePath, params.relPath)
-      : path.resolve(params.workspacePath);
     const workspaceRoot = path.resolve(params.workspacePath);
-
-    const chokidar = await import('chokidar');
-    const watcher = chokidar.watch(root, {
-      ignoreInitial: true,
-      persistent: true,
-      ignored: (target: string) => {
-        // Skip noisy dirs by name segment match (cheap; chokidar passes paths
-        // for both files and the directory entries on traverse).
-        const segments = target.split(/[\\/]/);
-        return segments.some((seg) =>
-          seg === 'node_modules'
-          || seg === '.git'
-          || seg === 'dist'
-          || seg === 'build'
-          || seg === 'out',
-        );
-      },
-    });
+    const scopeRoot = params.relPath
+      ? this.resolveSafe(params.workspacePath, params.relPath)
+      : workspaceRoot;
 
     const emit = (event: FileWatchEvent) => {
       try {
@@ -331,6 +326,57 @@ export class LocalFilesCapability implements FilesCapability {
     };
 
     const toRel = (absPath: string) => path.relative(workspaceRoot, absPath);
+
+    // When a scope path is supplied, drop events that fall outside it. The
+    // shared bus is workspace-wide, so per-call scoping happens in the adapter.
+    const inScope = (absPath: string): boolean => {
+      if (scopeRoot === workspaceRoot) return true;
+      return absPath === scopeRoot || absPath.startsWith(scopeRoot + path.sep);
+    };
+
+    if (this.bus) {
+      const subscriberId = `files-capability-watch:${randomUUID()}`;
+      await this.bus.subscribe(workspaceRoot, subscriberId, {
+        onAdd: (absPath: string) => {
+          if (!inScope(absPath)) return;
+          emit({ kind: 'created', relPath: toRel(absPath) });
+        },
+        onChange: (absPath: string) => {
+          if (!inScope(absPath)) return;
+          emit({ kind: 'modified', relPath: toRel(absPath) });
+        },
+        onUnlink: (absPath: string) => {
+          if (!inScope(absPath)) return;
+          emit({ kind: 'deleted', relPath: toRel(absPath) });
+        },
+      });
+
+      const bus = this.bus;
+      const handle: StreamHandle = {
+        id: subscriberId,
+        async unsubscribe() {
+          bus.unsubscribe(workspaceRoot, subscriberId);
+        },
+      };
+      return handle;
+    }
+
+    // Fallback: per-call chokidar (test harnesses that don't wire a bus).
+    const chokidar = await import('chokidar');
+    const watcher = chokidar.watch(scopeRoot, {
+      ignoreInitial: true,
+      persistent: true,
+      ignored: (target: string) => {
+        const segments = target.split(/[\\/]/);
+        return segments.some((seg) =>
+          seg === 'node_modules'
+          || seg === '.git'
+          || seg === 'dist'
+          || seg === 'build'
+          || seg === 'out',
+        );
+      },
+    });
 
     watcher
       .on('add', (absPath: string) =>

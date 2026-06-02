@@ -29,18 +29,22 @@ function bucketFileCount(count: number): string {
     return '100+';
 }
 
-workspaceEventBus.setGitignoreChangeHandler((workspacePath: string) => {
-    clearGitStatusCache(workspacePath);
-
-    for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.isDestroyed()) {
-            window.webContents.send('git:status-changed', { workspacePath });
-        }
-    }
-});
-
-// Set up IPC handlers for folder expand/collapse events
+// Set up IPC handlers for folder expand/collapse events.
+// Also registers the bus-wide .gitignore-change handler. Both happen here
+// rather than at module-load time so we don't construct the LocalRuntime
+// singleton before `app.whenReady()` resolves (the bus lives inside
+// LocalRuntime, and constructing it requires `app.getVersion()`).
 export function registerWorkspaceWatcherHandlers() {
+    workspaceEventBus.setGitignoreChangeHandler((workspacePath: string) => {
+        clearGitStatusCache(workspacePath);
+
+        for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) {
+                window.webContents.send('git:status-changed', { workspacePath });
+            }
+        }
+    });
+
     safeHandle('workspace-folder-expanded', async (event, folderPath: string) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window) return;

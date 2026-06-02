@@ -21150,12 +21150,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-katex@0.16.45
+katex@0.16.47
 Selected license: MIT
 Declared license: MIT
-Install paths: packages/runtime/node_modules/katex
+Install paths: packages/extensions/math/node_modules/katex
 
---- LICENSE (packages/runtime/node_modules/katex/LICENSE) ---
+--- LICENSE (packages/extensions/math/node_modules/katex/LICENSE) ---
 The MIT License (MIT)
 
 Copyright (c) 2013-2020 Khan Academy and other contributors

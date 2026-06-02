@@ -1,7 +1,8 @@
 import { app } from 'electron';
 import {
   LocalFilesCapability,
-  createLocalRuntimeContext,
+  WorkspaceEventBus,
+  createLocalRuntimeContextWithBus,
   type RuntimeContext,
 } from '@nimbalyst/daemon-core';
 
@@ -22,13 +23,10 @@ import { logger } from '../utils/logger';
  */
 
 let runtimeContext: RuntimeContext | null = null;
-let filesCapability: LocalFilesCapability | null = null;
+let workspaceEventBus: WorkspaceEventBus | null = null;
 
 function build(): RuntimeContext {
-  const files = new LocalFilesCapability();
-  filesCapability = files;
-
-  const ctx = createLocalRuntimeContext({
+  const { context, bus } = createLocalRuntimeContextWithBus({
     runtimeId: 'local',
     runtimeName: 'local',
     runtimeVersion: app.getVersion(),
@@ -36,22 +34,15 @@ function build(): RuntimeContext {
     features: {
       fileWrite: true,
     },
+    workspaceEventBusLogger: logger.main,
   });
 
-  // The createLocalRuntimeContext default builds its own LocalFilesCapability;
-  // we want the same instance that's exposed to in-process callers via
-  // getLocalFiles(). Swap in the shared instance.
-  Object.defineProperty(ctx, 'files', {
-    value: files,
-    writable: false,
-    enumerable: true,
-    configurable: false,
-  });
+  workspaceEventBus = bus;
 
   logger.main.info(
     `[LocalRuntime] initialized runtime context (version ${app.getVersion()})`,
   );
-  return ctx;
+  return context;
 }
 
 export function getLocalRuntime(): RuntimeContext {
@@ -71,10 +62,20 @@ export function getLocalRuntime(): RuntimeContext {
  * `getLocalRuntime().files` — the public interface — instead.
  */
 export function getLocalFiles(): LocalFilesCapability {
-  if (!filesCapability) {
-    // Ensure the runtime is built; that wires `filesCapability`.
+  return getLocalRuntime().files as LocalFilesCapability;
+}
+
+/**
+ * Direct access to the in-process WorkspaceEventBus. Used by Electron-side
+ * file watchers, session file trackers, project file sync, and action-prompt
+ * services that subscribe to per-workspace fs events. There is exactly one
+ * bus per main process: a single chokidar/fs.watch per workspace, multi-
+ * subscriber multiplex, with `.gitignore` handling and bypass bookkeeping.
+ */
+export function getLocalWorkspaceEventBus(): WorkspaceEventBus {
+  if (!workspaceEventBus) {
+    // Ensure the runtime is built; that wires `workspaceEventBus`.
     getLocalRuntime();
   }
-  // Non-null after build() runs.
-  return filesCapability!;
+  return workspaceEventBus!;
 }

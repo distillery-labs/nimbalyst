@@ -7,6 +7,7 @@ import path from 'node:path';
 import { LocalFilesCapability } from '../local/files.js';
 import { RuntimeErrorObject } from '../types/errors.js';
 import { createLocalRuntimeContext } from '../local/createLocalRuntimeContext.js';
+import { WorkspaceEventBus } from '../local/workspaceEventBus.js';
 
 describe('LocalFilesCapability', () => {
   let workspace: string;
@@ -352,6 +353,78 @@ describe('LocalFilesCapability', () => {
       expect(typeof handle.id).toBe('string');
       expect(handle.id.length).toBeGreaterThan(8);
       await handle.unsubscribe();
+    });
+  });
+
+  describe('watch (bus-backed)', () => {
+    it('routes subscriptions through the shared bus when one is supplied', async () => {
+      const bus = new WorkspaceEventBus();
+      const filesWithBus = new LocalFilesCapability({ bus });
+      const events: Array<{ kind: string; relPath: string }> = [];
+
+      const handle = await filesWithBus.watch(
+        { workspacePath: workspace },
+        (event) => {
+          if (event.kind === 'renamed') {
+            events.push({ kind: 'renamed', relPath: event.toRel });
+          } else {
+            events.push({ kind: event.kind, relPath: event.relPath });
+          }
+        },
+      );
+
+      try {
+        // One bus entry should be open for this workspace.
+        expect(bus.getBusEntryCount()).toBe(1);
+        expect(bus.getRefCount(workspace)).toBe(1);
+        expect(bus.getSubscriberIds(workspace)).toEqual([handle.id]);
+
+        // Give the watcher a moment to attach.
+        await new Promise((r) => setTimeout(r, 200));
+
+        await writeFile(path.join(workspace, 'bus-watch.md'), 'hi');
+        await new Promise((r) => setTimeout(r, 300));
+      } finally {
+        await handle.unsubscribe();
+      }
+
+      // Once unsubscribed, the bus tears down its entry for the workspace.
+      expect(bus.getRefCount(workspace)).toBe(0);
+      expect(bus.getBusEntryCount()).toBe(0);
+
+      // We saw at least the created event from the bus.
+      expect(events.some((e) => e.kind === 'created' && e.relPath === 'bus-watch.md')).toBe(true);
+    });
+
+    it('drops events outside the requested relPath scope', async () => {
+      const bus = new WorkspaceEventBus();
+      const filesWithBus = new LocalFilesCapability({ bus });
+      await mkdir(path.join(workspace, 'in-scope'), { recursive: true });
+      await mkdir(path.join(workspace, 'out-of-scope'), { recursive: true });
+
+      const events: Array<{ kind: string; relPath: string }> = [];
+      const handle = await filesWithBus.watch(
+        { workspacePath: workspace, relPath: 'in-scope' },
+        (event) => {
+          if (event.kind === 'renamed') {
+            events.push({ kind: 'renamed', relPath: event.toRel });
+          } else {
+            events.push({ kind: event.kind, relPath: event.relPath });
+          }
+        },
+      );
+
+      try {
+        await new Promise((r) => setTimeout(r, 200));
+        await writeFile(path.join(workspace, 'in-scope', 'kept.md'), 'a');
+        await writeFile(path.join(workspace, 'out-of-scope', 'dropped.md'), 'b');
+        await new Promise((r) => setTimeout(r, 300));
+      } finally {
+        await handle.unsubscribe();
+      }
+
+      expect(events.some((e) => e.relPath === 'in-scope/kept.md')).toBe(true);
+      expect(events.every((e) => !e.relPath.includes('out-of-scope'))).toBe(true);
     });
   });
 });

@@ -61,6 +61,21 @@ export const BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
   '.woff', '.woff2', '.ttf', '.otf', '.eot',
 ]);
 
+/** True if a directory name is one of the always-excluded build/tooling dirs. */
+export function shouldExcludeDir(dirName: string): boolean {
+  return EXCLUDED_DIRS.has(dirName);
+}
+
+/**
+ * True if any segment of `relativePath` (slash-separated) is an excluded dir.
+ * Used to drop events whose path crosses through a build-output tree even when
+ * the entry itself isn't a directory.
+ */
+export function pathContainsExcludedDir(relativePath: string): boolean {
+  const segments = relativePath.replace(/\\/g, '/').split('/').filter(Boolean);
+  return segments.some((segment) => EXCLUDED_DIRS.has(segment));
+}
+
 /**
  * Ripgrep `--glob !<pattern>` arguments to exclude noisy directories,
  * pre-flattened as an args array for `execFile`.

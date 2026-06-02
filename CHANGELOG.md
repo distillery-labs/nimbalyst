@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 <!-- Changes to existing functionality go here -->
 - Default Claude model bumped from `claude-opus-4-7` to `claude-opus-4-8`. Existing sessions keep their configured model; only new sessions and "reset to default" pick up 4.8. (#473)
+- Workspace file-watcher pool (one chokidar/fs.watch per workspace, multi-subscriber multiplex, `.gitignore` filtering, bypass + replay buffer) moved into the new `@nimbalyst/daemon-core` package so the local Electron runtime and the Phase 1 daemon share a single implementation. `LocalFilesCapability.watch` now routes through the shared bus instead of spawning per-call chokidar. Electron-side `WorkspaceEventBus` shrinks to a thin re-export shim; no user-visible behavior change. (fork-local)
 
 ### Fixed
 <!-- Bug fixes go here -->
