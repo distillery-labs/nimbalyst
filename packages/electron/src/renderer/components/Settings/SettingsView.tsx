@@ -24,6 +24,7 @@ import { MCPServersPanel } from '../GlobalSettings/panels/MCPServersPanel';
 import { ClaudeCodePluginsPanel } from '../GlobalSettings/panels/ClaudeCodePluginsPanel';
 import { SyncPanel } from '../GlobalSettings/panels/SyncPanel';
 import { SharedLinksPanel } from '../GlobalSettings/panels/SharedLinksPanel';
+import { CredentialProfilesPanel } from '../GlobalSettings/panels/CredentialProfilesPanel';
 import { ProjectPermissionsPanel } from './panels/ProjectPermissionsPanel';
 import { ProviderOverrideWrapper } from './panels/ProviderOverrideWrapper';
 import { InstalledExtensionsPanel } from './panels/InstalledExtensionsPanel';
@@ -148,7 +149,7 @@ export function SettingsView({
 
   // Valid categories for each scope
   const projectCategories: SettingsCategory[] = ['agent-permissions', 'team', 'tracker-config', 'installed-extensions', 'claude-plugins', 'mcp-servers', 'claude-code', 'claude', 'openai', 'openai-codex', 'opencode', 'copilot-cli', 'lmstudio'];
-  const userCategories: SettingsCategory[] = ['claude-code', 'claude', 'openai', 'openai-codex', 'opencode', 'copilot-cli', 'lmstudio', 'sync', 'notifications', 'voice-mode', 'agent-features', 'advanced', 'marketplace', 'installed-extensions', 'claude-plugins', 'mcp-servers'];
+  const userCategories: SettingsCategory[] = ['claude-code', 'claude', 'openai', 'openai-codex', 'opencode', 'copilot-cli', 'lmstudio', 'sync', 'notifications', 'voice-mode', 'agent-features', 'advanced', 'marketplace', 'installed-extensions', 'claude-plugins', 'mcp-servers', 'credential-profiles'];
 
   // When initialCategory/initialScope props change, update state (for deep linking)
   useEffect(() => {
@@ -604,6 +605,8 @@ export function SettingsView({
         return <SyncPanel />;
       case 'shared-links':
         return <SharedLinksPanel />;
+      case 'credential-profiles':
+        return <CredentialProfilesPanel />;
       case 'themes':
         return (
           <ThemesPanel

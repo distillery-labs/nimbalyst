@@ -9,6 +9,7 @@ import type { EffortLevel } from '../../utils/modelUtils';
 import { AttachmentPreviewList } from '../AgenticCoding/AttachmentPreviewList';
 import { ModeTag, AIMode } from './ModeTag';
 import { ModelSelector } from './ModelSelector';
+import { SessionCredentialPicker } from './SessionCredentialPicker';
 import { EffortLevelSelector } from './EffortLevelSelector';
 import { registerPendingVoiceCommandSetter } from './VoiceModeButton.tsx';
 import { PendingVoiceCommand } from './PendingVoiceCommand';
@@ -1281,6 +1282,9 @@ export const AIInput = forwardRef<AIInputRef, AIInputProps>(
                   />
                 </span>
               </HelpTooltip>
+            )}
+            {sessionId && currentProvider && (
+              <SessionCredentialPicker sessionId={sessionId} provider={currentProvider} />
             )}
             {showEffortLevel && onEffortLevelChange && effortLevel && (
               <EffortLevelSelector

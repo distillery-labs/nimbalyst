@@ -8,6 +8,7 @@ import { developerModeAtom } from '../../store/atoms/appSettings';
 
 export type SettingsCategory =
   | 'agent-permissions'
+  | 'credential-profiles'
   | 'claude-code'
   | 'claude'
   | 'openai'
@@ -137,8 +138,19 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
       ],
     },
     {
+      title: 'Credentials',
+      infoTooltip: `Named API keys you can attach to a specific project or chat thread, so different work can use different accounts without copy-pasting keys.`,
+      items: [
+        {
+          id: 'credential-profiles',
+          name: 'Credential Profiles',
+          icon: <MaterialSymbol icon="key" size={16} />,
+        },
+      ],
+    },
+    {
       title: 'Agent Providers',
-      infoTooltip: `Agents run in loops against your files to produce work. 
+      infoTooltip: `Agents run in loops against your files to produce work.
       
 The have full MCP support with file system access, multi-file operations, and session persistence.
 

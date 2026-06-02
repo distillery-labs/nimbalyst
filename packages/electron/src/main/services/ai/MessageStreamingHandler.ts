@@ -107,6 +107,10 @@ interface AIServiceInternal {
   // Helper methods
   getSettingsStore(): Store<Record<string, unknown>>;
   getApiKeyForProvider(provider: string, workspacePath?: string): string | undefined;
+  resolveCredential(
+    provider: string,
+    opts?: { workspacePath?: string; sessionMetadata?: Record<string, unknown> },
+  ): import('../../../shared/credentialProfiles').ResolvedCredential | undefined;
   buildClaudeCodeRuntimeConfig(session: SessionData, workspacePath?: string): Promise<ProviderConfig>;
   continueQueuedPromptChain(
     sessionId: string,
@@ -429,7 +433,11 @@ export class MessageStreamingHandler {
       let errorMessage = 'API key not configured';
       let requiresApiKey = true;
       const effectiveWorkspacePath = session.workspacePath || workspacePath;
-      apiKey = this.svc.getApiKeyForProvider(session.provider, effectiveWorkspacePath);
+      const resolvedCred = this.svc.resolveCredential(session.provider, {
+        workspacePath: effectiveWorkspacePath,
+        sessionMetadata: session.metadata as Record<string, unknown> | undefined,
+      });
+      apiKey = resolvedCred?.kind === 'apiKey' ? resolvedCred.value : undefined;
       switch (session.provider) {
         case 'claude':
           errorMessage = 'Anthropic API key not configured';
@@ -1065,7 +1073,11 @@ export class MessageStreamingHandler {
         // No need to configure per-session context
       } else {
         // Refresh credentials every turn for all providers so key changes in settings apply immediately.
-        const freshApiKey = this.svc.getApiKeyForProvider(session.provider, effectiveWorkspacePath);
+        const freshCred = this.svc.resolveCredential(session.provider, {
+          workspacePath: effectiveWorkspacePath,
+          sessionMetadata: session.metadata as Record<string, unknown> | undefined,
+        });
+        const freshApiKey = freshCred?.kind === 'apiKey' ? freshCred.value : undefined;
         await provider.initialize({
           apiKey: freshApiKey,
           maxTokens: (session.providerConfig as any)?.maxTokens,

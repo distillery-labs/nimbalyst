@@ -701,7 +701,9 @@ export function createPGLiteSessionStore(db: PGliteLike, ensureDbReady?: EnsureR
           tags: Array.isArray(metadata.tags) ? metadata.tags : undefined,
           // Linked tracker item IDs from metadata JSONB
           linkedTrackerItemIds: Array.isArray(metadata.linkedTrackerItemIds) ? metadata.linkedTrackerItemIds : undefined,
-        } satisfies SessionMeta & { hasPendingQuestion?: boolean; phase?: string; tags?: string[]; linkedTrackerItemIds?: string[] };
+          // Per-thread credential override (Credential Profiles feature).
+          credentialProfileId: typeof metadata.credentialProfileId === 'string' ? metadata.credentialProfileId : undefined,
+        } satisfies SessionMeta & { hasPendingQuestion?: boolean; phase?: string; tags?: string[]; linkedTrackerItemIds?: string[]; credentialProfileId?: string };
       });
     },
 

@@ -67,6 +67,9 @@ import {
   wasCommunityPopupShownThisLaunch
 } from '../../utils/store';
 import { mergeAISettings, getAIProviderOverridesWithWorktreeFallback } from '../../utils/aiSettingsMerge';
+import { CredentialProfileService } from '../CredentialProfileService';
+import type { ResolvedCredential } from '../../../shared/credentialProfiles';
+import { resolveCredential as pureResolveCredential } from './credentialResolution';
 import { DocumentContextService, type RawDocumentContext, type PreparedDocumentContext } from '@nimbalyst/runtime';
 import { getMessageSyncHandler, getSyncProvider, isDesktopTrulyAway } from '../SyncManager';
 import { normalizeCodexProviderConfig, omitModelsField, stripTransientProviderFields } from '@nimbalyst/runtime/ai/server/utils/modelConfigUtils';
@@ -466,49 +469,43 @@ export class AIService {
   }
 
   /**
-   * Get API key for a provider, considering project-level overrides.
-   * Project-specific API keys take precedence over global keys.
+   * Resolve which credential should authenticate a request for `provider`.
+   * Precedence: session profile → project profile → project legacy apiKey
+   * → global apiKey from settings.
+   *
+   * An explicitly-selected profile (session or project) bypasses the
+   * claude-code authMethod gate, since the user opted in to that profile
+   * specifically. The gate still applies to the global fallback.
+   */
+  resolveCredential(
+    provider: string,
+    opts: { workspacePath?: string; sessionMetadata?: Record<string, unknown> } = {},
+  ): ResolvedCredential | undefined {
+    // NEVER fall back to process.env — users must explicitly set keys in
+    // settings. Implicit env-var usage caused a user to burn $100+ on their
+    // personal Anthropic account because Nimbalyst silently picked up
+    // ANTHROPIC_API_KEY from a .env file. The pure resolver only reads from
+    // the dependency callbacks below, never process.env.
+    return pureResolveCredential(provider, opts, {
+      resolveProfile: (id) => CredentialProfileService.getInstance().resolve(id),
+      getProjectOverride: (wp, p) => getAIProviderOverrides(wp)?.providers?.[p],
+      getGlobalApiKeys: () => this.getSettingsStore().get('apiKeys', {}) as Record<string, string>,
+      getClaudeCodeAuthMethod: () => {
+        const providerSettings = this.getNormalizedProviderSettings() as any;
+        return providerSettings?.['claude-code']?.authMethod ?? 'login';
+      },
+    });
+  }
+
+  /**
+   * Back-compat shim: returns the raw API key string for callers that
+   * haven't been updated to consume ResolvedCredential. Returns the apiKey
+   * value for `apiKey`-kind credentials; for `oauth` it returns undefined
+   * (those callers must be migrated before OAuth profiles ship).
    */
   private getApiKeyForProvider(provider: string, workspacePath?: string): string | undefined {
-    const globalApiKeys = this.getSettingsStore().get('apiKeys', {}) as Record<string, string>;
-    const providerSettings = this.getNormalizedProviderSettings() as any;
-
-    // Claude Code must never use implicit keys.
-    // It only uses its dedicated key when API-key auth is explicitly selected.
-    if (provider === 'claude-code') {
-      const authMethod = providerSettings?.['claude-code']?.authMethod ?? 'login';
-      if (authMethod !== 'api-key') {
-        return undefined;
-      }
-    }
-
-    // Check for project-level API key override
-    if (workspacePath) {
-      const overrides = getAIProviderOverrides(workspacePath);
-      const overrideKey = overrides?.providers?.[provider]?.apiKey;
-      if (overrideKey) {
-        return overrideKey;
-      }
-    }
-
-    // Return the explicitly-configured global API key.
-    // NEVER fall back to process.env — users must explicitly set keys in settings.
-    // Implicit env-var usage caused a user to burn $100+ on their personal Anthropic
-    // account because Nimbalyst silently picked up ANTHROPIC_API_KEY from a .env file.
-    switch (provider) {
-      case 'claude':
-        return globalApiKeys['anthropic'];
-      case 'claude-code':
-        return globalApiKeys['claude-code'];
-      case 'openai':
-        return globalApiKeys['openai'];
-      case 'openai-codex':
-        return globalApiKeys['openai-codex'];
-      case 'lmstudio':
-        return 'not-required';
-      default:
-        return globalApiKeys[provider];
-    }
+    const cred = this.resolveCredential(provider, { workspacePath });
+    return cred?.kind === 'apiKey' ? cred.value : undefined;
   }
 
   /**
@@ -520,7 +517,11 @@ export class AIService {
     workspacePath?: string
   ): Promise<ProviderConfig> {
     const effectiveWorkspacePath = session.workspacePath || workspacePath;
-    const apiKey = this.getApiKeyForProvider('claude-code', effectiveWorkspacePath);
+    const cred = this.resolveCredential('claude-code', {
+      workspacePath: effectiveWorkspacePath,
+      sessionMetadata: session.metadata as Record<string, unknown> | undefined,
+    });
+    const apiKey = cred?.kind === 'apiKey' ? cred.value : undefined;
 
     const config: ProviderConfig = {
       maxTokens: (session.providerConfig as any)?.maxTokens,
