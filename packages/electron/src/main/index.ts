@@ -144,6 +144,7 @@ import { database, HandledError } from './database/PGLiteDatabaseWorker';
 import { AnalyticsService } from "./services/analytics/AnalyticsService.ts";
 import { registerAnalyticsHandlers } from "./ipc/AnalyticsHandlers.ts";
 import { registerFeatureUsageHandlers } from "./ipc/FeatureUsageHandlers.ts";
+import { registerCostHandlers } from "./ipc/CostHandlers.ts";
 import { FeatureUsageService, FEATURES } from "./services/FeatureUsageService.ts";
 import { shutdownStytchAuth, handleAuthCallback, isAuthenticated } from './services/StytchAuthService';
 import { registerTrackerSyncHandlers, initializeTrackerSync } from './services/TrackerSyncManager';
@@ -1369,6 +1370,7 @@ app.whenReady().then(async () => {
     initializeClaudeCodeSessionHandlers();  // Initialize Claude Code session import
     registerAnalyticsHandlers();
     registerFeatureUsageHandlers();
+    registerCostHandlers();
     registerNotificationHandlers();
     registerClaudeUsageHandlers();
     claudeUsageService.initialize();

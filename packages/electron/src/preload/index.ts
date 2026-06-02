@@ -1205,6 +1205,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAll: () => ipcRenderer.invoke('feature-usage:get-all'),
   },
 
+  // Cost tracking (per-session and tracker-rollup USD/token totals)
+  cost: {
+    getSessionCost: (sessionId: string) => ipcRenderer.invoke('cost:getSessionCost', sessionId),
+    getSessionTurns: (sessionId: string, limit?: number) =>
+      ipcRenderer.invoke('cost:getSessionTurns', sessionId, limit),
+    getTrackerRollup: (trackerId: string) => ipcRenderer.invoke('cost:getTrackerRollup', trackerId),
+    getTrackerRollups: (trackerIds: string[]) =>
+      ipcRenderer.invoke('cost:getTrackerRollups', trackerIds),
+    getWorkspaceSummary: (workspaceId: string) =>
+      ipcRenderer.invoke('cost:getWorkspaceSummary', workspaceId),
+    listPricing: () => ipcRenderer.invoke('cost:listPricing'),
+  },
+
   // Credentials (for sync and mobile pairing)
   credentials: {
     get: () => ipcRenderer.invoke('credentials:get'),
