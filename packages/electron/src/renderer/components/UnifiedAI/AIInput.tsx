@@ -15,6 +15,7 @@ import { registerPendingVoiceCommandSetter } from './VoiceModeButton.tsx';
 import { PendingVoiceCommand } from './PendingVoiceCommand';
 import { pendingVoiceCommandAtom, voiceActiveSessionIdAtom, type PendingVoiceCommand as PendingVoiceCommandType } from '../../store/atoms/voiceModeState';
 import { ContextUsageDisplay } from './ContextUsageDisplay';
+import { SessionCostDisplay } from './SessionCostDisplay';
 import { ActionPromptsDropdown } from './ActionPromptsDropdown';
 import type { ActionPrompt } from '../../store/atoms/actionPrompts';
 import { MockupAnnotationIndicator } from './MockupAnnotationIndicator';
@@ -87,6 +88,7 @@ interface AIInputProps {
     totalTokens: number;
     contextWindow?: number;
     categories?: TokenUsageCategory[];
+    costUSD?: number;
     currentContext?: {
       tokens: number;
       contextWindow: number;
@@ -1311,6 +1313,13 @@ export const AIInput = forwardRef<AIInputRef, AIInputProps>(
               contextWindow={tokenUsage?.contextWindow || 0}
               categories={tokenUsage?.categories}
               currentContext={tokenUsage?.currentContext}
+            />
+            <SessionCostDisplay
+              costUsd={tokenUsage?.costUSD}
+              inputTokens={tokenUsage?.inputTokens || 0}
+              outputTokens={tokenUsage?.outputTokens || 0}
+              cacheReadTokens={(tokenUsage as { cacheReadTokens?: number } | undefined)?.cacheReadTokens || 0}
+              cacheCreateTokens={(tokenUsage as { cacheCreateTokens?: number } | undefined)?.cacheCreateTokens || 0}
             />
           </div>
         )}
