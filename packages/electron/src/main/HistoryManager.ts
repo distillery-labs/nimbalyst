@@ -975,15 +975,18 @@ export class HistoryManager {
           await database.initialize();
         }
 
-        // Use json_extract (not the ->> operator) so SQLite's planner can
-        // match this against idx_history_pending_session_file (migration 2).
-        // PGLite is happy with either form. Putting the sessionId predicate
-        // first lets the index lookup happen before the file_path filter.
+        // PGLite is PostgreSQL — use the `->>` operator for jsonb text
+        // extraction. SQLite's json_extract() does not exist in PG and
+        // every call to this function was throwing
+        // `function json_extract(jsonb, unknown) does not exist`
+        // before being silently caught below.
+        // The sessionId predicate is listed first so the planner can
+        // narrow on it before scanning file_path LIKE.
         const result = await database.query<{ file_path: string }>(`
           SELECT DISTINCT file_path
           FROM document_history
-          WHERE json_extract(metadata, '$.sessionId') = $1
-            AND json_extract(metadata, '$.status') = 'pending-review'
+          WHERE metadata->>'sessionId' = $1
+            AND metadata->>'status' = 'pending-review'
             AND file_path LIKE $2
         `, [sessionId, workspacePath + '%']);
 

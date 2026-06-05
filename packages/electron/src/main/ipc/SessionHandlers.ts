@@ -70,6 +70,23 @@ const SESSION_FILES_CACHE_TTL_MS = 5000; // 5 second cache
 const sessionEditorsCache = new Map<string, { ids: Set<string>; timestamp: number }>();
 const sessionEditorsInFlight = new Map<string, Promise<Set<string>>>();
 
+// ============================================================
+// sessions:list in-flight dedup
+// Five+ renderer call sites can request the session list within the
+// same workspace mount (ChatSidebar, SessionQuickOpen, MetaAgentMode,
+// refreshSessionListAtom, file-state listeners). The underlying
+// AISessionsRepository.list() query is 1-8 seconds on warm workspaces
+// and is not itself deduped, so concurrent callers used to pile up
+// in the PGLite queue. In-flight dedup collapses them onto a single
+// query without a TTL — every caller still gets fresh data.
+// ============================================================
+interface SessionsListResponse {
+    success: boolean;
+    sessions: Array<Record<string, unknown>>;
+    error?: string;
+}
+const sessionsListInFlight = new Map<string, Promise<SessionsListResponse>>();
+
 function trackCreateAISession(provider: AIProviderType, options?: {
     worktreeId?: string | null;
     parentSessionId?: string | null;
@@ -523,71 +540,84 @@ export async function registerSessionHandlers() {
 
     // List sessions for workspace
     safeHandle('sessions:list', async (event, workspacePath: string, options?: { includeArchived?: boolean }) => {
-        try {
-            const startTime = performance.now();
-            const entries = await AISessionsRepository.list(workspacePath, options);
-            const listTime = performance.now() - startTime;
-            // console.log(`[SessionHandlers] sessions:list query took ${listTime.toFixed(1)}ms for ${entries.length} sessions`);
+        const cacheKey = `${workspacePath}::${options?.includeArchived === true}`;
+        const inFlight = sessionsListInFlight.get(cacheKey);
+        if (inFlight) return inFlight;
 
-            // Get uncommitted file counts for all sessions
-            // Count files edited by each session that are currently uncommitted in git
-            // Uses cached git status and a query bounded to currently-uncommitted paths
-            const uncommittedMap = new Map<string, number>();
+        const promise = (async (): Promise<SessionsListResponse> => {
             try {
-                const uncommittedFiles = await getCachedUncommittedFiles(workspacePath);
+                const startTime = performance.now();
+                const entries = await AISessionsRepository.list(workspacePath, options);
+                const listTime = performance.now() - startTime;
+                // console.log(`[SessionHandlers] sessions:list query took ${listTime.toFixed(1)}ms for ${entries.length} sessions`);
 
-                if (uncommittedFiles.size > 0) {
-                    const fileToSession = await getSessionsForUncommittedFiles(workspacePath, uncommittedFiles);
-                    // Every entry is, by construction, a currently-uncommitted file
-                    fileToSession.forEach((sessionId) => {
-                        uncommittedMap.set(sessionId, (uncommittedMap.get(sessionId) || 0) + 1);
-                    });
+                // Get uncommitted file counts for all sessions
+                // Count files edited by each session that are currently uncommitted in git
+                // Uses cached git status and a query bounded to currently-uncommitted paths
+                const uncommittedMap = new Map<string, number>();
+                try {
+                    const uncommittedFiles = await getCachedUncommittedFiles(workspacePath);
+
+                    if (uncommittedFiles.size > 0) {
+                        const fileToSession = await getSessionsForUncommittedFiles(workspacePath, uncommittedFiles);
+                        // Every entry is, by construction, a currently-uncommitted file
+                        fileToSession.forEach((sessionId) => {
+                            uncommittedMap.set(sessionId, (uncommittedMap.get(sessionId) || 0) + 1);
+                        });
+                    }
+                } catch (error) {
+                    console.error('[SessionHandlers] Failed to get uncommitted counts:', error);
                 }
+
+                // Use entry data directly - it already has all the info we need including updatedAt
+                const sessions = entries.map(entry => {
+                    const uncommittedCount = uncommittedMap.get(entry.id) || 0;
+                    return {
+                        id: entry.id,
+                        createdAt: entry.createdAt,
+                        updatedAt: entry.updatedAt,
+                        name: entry.title,
+                        title: entry.title,
+                        provider: entry.provider,
+                        model: entry.model,
+                        sessionType: entry.sessionType || 'session',
+                        agentRole: entry.agentRole || 'standard',
+                        createdBySessionId: entry.createdBySessionId || null,
+                        messageCount: entry.messageCount || 0,
+                        isArchived: entry.isArchived || false,
+                        isPinned: entry.isPinned || false,  // Include isPinned from repository
+                        worktreeId: entry.worktreeId,  // Include worktreeId from repository
+                        parentSessionId: entry.parentSessionId || null,  // Hierarchical workstream support
+                        childCount: entry.childCount || 0,  // Number of child sessions
+                        uncommittedCount,  // Number of uncommitted files
+                        hasUnread: entry.hasUnread || false,  // Unread state from metadata
+                        hasPendingQuestion: (entry as any).hasPendingQuestion || false,  // Pending AskUserQuestion state from metadata
+                        hasPendingInteractivePrompt: (entry as any).hasPendingQuestion || false,
+                        // Branch tracking - SEPARATE from hierarchical parentSessionId
+                        branchedFromSessionId: entry.branchedFromSessionId,
+                        branchPointMessageId: entry.branchPointMessageId,
+                        branchedAt: entry.branchedAt,
+                        // Kanban board phase and tags
+                        phase: (entry as any).phase || undefined,
+                        tags: (entry as any).tags || undefined,
+                        // Linked tracker item IDs
+                        linkedTrackerItemIds: (entry as any).linkedTrackerItemIds || undefined,
+                        metadata: {}
+                    };
+                });
+
+                return { success: true, sessions };
             } catch (error) {
-                console.error('[SessionHandlers] Failed to get uncommitted counts:', error);
+                console.error('[SessionHandlers] Failed to list sessions:', error);
+                return { success: false, error: String(error), sessions: [] };
             }
+        })();
 
-            // Use entry data directly - it already has all the info we need including updatedAt
-            const sessions = entries.map(entry => {
-                const uncommittedCount = uncommittedMap.get(entry.id) || 0;
-                return {
-                    id: entry.id,
-                    createdAt: entry.createdAt,
-                    updatedAt: entry.updatedAt,
-                    name: entry.title,
-                    title: entry.title,
-                    provider: entry.provider,
-                    model: entry.model,
-                    sessionType: entry.sessionType || 'session',
-                    agentRole: entry.agentRole || 'standard',
-                    createdBySessionId: entry.createdBySessionId || null,
-                    messageCount: entry.messageCount || 0,
-                    isArchived: entry.isArchived || false,
-                    isPinned: entry.isPinned || false,  // Include isPinned from repository
-                    worktreeId: entry.worktreeId,  // Include worktreeId from repository
-                    parentSessionId: entry.parentSessionId || null,  // Hierarchical workstream support
-                    childCount: entry.childCount || 0,  // Number of child sessions
-                    uncommittedCount,  // Number of uncommitted files
-                    hasUnread: entry.hasUnread || false,  // Unread state from metadata
-                    hasPendingQuestion: (entry as any).hasPendingQuestion || false,  // Pending AskUserQuestion state from metadata
-                    hasPendingInteractivePrompt: (entry as any).hasPendingQuestion || false,
-                    // Branch tracking - SEPARATE from hierarchical parentSessionId
-                    branchedFromSessionId: entry.branchedFromSessionId,
-                    branchPointMessageId: entry.branchPointMessageId,
-                    branchedAt: entry.branchedAt,
-                    // Kanban board phase and tags
-                    phase: (entry as any).phase || undefined,
-                    tags: (entry as any).tags || undefined,
-                    // Linked tracker item IDs
-                    linkedTrackerItemIds: (entry as any).linkedTrackerItemIds || undefined,
-                    metadata: {}
-                };
-            });
-
-            return { success: true, sessions };
-        } catch (error) {
-            console.error('[SessionHandlers] Failed to list sessions:', error);
-            return { success: false, error: String(error), sessions: [] };
+        sessionsListInFlight.set(cacheKey, promise);
+        try {
+            return await promise;
+        } finally {
+            sessionsListInFlight.delete(cacheKey);
         }
     });
 
